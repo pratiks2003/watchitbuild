@@ -1,0 +1,44 @@
+<template>
+  <section class="panel" aria-label="Case file">
+    <div class="ph"><span class="t">case file</span></div>
+    <ol class="qs">
+      <template for:each={items} for:item="q">
+        <li key={q.id} class={q.cls}>
+          <span class="i" aria-hidden="true">{q.icon}</span>
+          <span
+            >{q.text}<span class="sr">, {q.srStatus}</span>
+            <small>{q.detail}</small>
+          </span>
+        </li>
+      </template>
+    </ol>
+    <div class="hyp">
+      <span class="t">working theory</span>
+      <p>{theory}</p>
+      <div class="meter">
+        <span>confidence</span>
+        <span
+          class="bar"
+          role="progressbar"
+          aria-label="Confidence"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow={confidence}
+          ><i style={confidenceStyle}></i
+        ></span>
+        <span>{confidenceText}</span>
+      </div>
+    </div>
+    <div class="crew">
+      <template for:each={crew} for:item="a">
+        <button key={a.key} data-key={a.key} onclick={handleChat}>
+          <span class="av" style={a.avatarStyle} aria-hidden="true"
+            >{a.initial}</span
+          >
+          <span class="who"><b>{a.name}</b><small>{a.role}</small></span>
+          <span class="go">chat →</span>
+        </button>
+      </template>
+    </div>
+  </section>
+</template>

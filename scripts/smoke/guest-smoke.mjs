@@ -7,8 +7,12 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const [siteUrl, shotPath = "smoke.png", waitMs = "20000"] =
-  process.argv.slice(2);
+const args = process.argv.slice(2);
+const interact = args.includes("--interact");
+const [siteUrl, shotPath = "smoke.png", waitMs = "20000"] = args.filter(
+  (a) => a !== "--interact"
+);
+process.argv.slice(2);
 if (!siteUrl) {
   console.error(
     "Usage: node guest-smoke.mjs <siteUrl> [screenshot.png] [waitMs]"
@@ -63,16 +67,56 @@ function send(ws, method, params = {}) {
 
 const PIERCE = `(() => {
   const out = [];
+  const seen = new Set();
   const walk = (root) => {
-    root.querySelectorAll('[data-check]').forEach(el => out.push({
+    if (seen.has(root)) return;
+    seen.add(root);
+    root.querySelectorAll('[data-check]').forEach(el => out.some(o => o.el === el) || out.push({ el,
       check: el.dataset.check, status: el.dataset.status,
       text: el.textContent.replace(/\\s+/g, ' ').trim()
     }));
     root.querySelectorAll('*').forEach(el => el.shadowRoot && walk(el.shadowRoot));
   };
   walk(document);
-  return JSON.stringify({ title: document.title, url: location.href, checks: out });
+  return JSON.stringify({ title: document.title, url: location.href, checks: out.map(({ el, ...rest }) => rest) });
 })()`;
+
+// Visitor flow: skip to results, open Ada's chat from her name tag, ask a suggested question.
+const DEEP = `const deepAll = (sel) => { const out = []; const seen = new Set(); const walk = (r) => { if (seen.has(r)) return; seen.add(r); r.querySelectorAll(sel).forEach(e => out.push(e)); r.querySelectorAll('*').forEach(e => e.shadowRoot && walk(e.shadowRoot)); }; walk(document); return out; };`;
+async function evaluate(ws, body) {
+  const res = await send(ws, "Runtime.evaluate", {
+    expression: `(() => { ${DEEP} ${body} })()`,
+    returnByValue: true,
+    awaitPromise: true
+  });
+  return res?.result?.value;
+}
+async function runInteraction(ws) {
+  const skipped = await evaluate(
+    ws,
+    `const b = deepAll('button').find(x => x.textContent.trim() === 'Skip to results'); if (b) b.click(); return Boolean(b);`
+  );
+  await sleep(1500);
+  const opened = await evaluate(
+    ws,
+    `const t = deepAll('button.tag3').find(x => x.textContent.includes('Ada')); if (t) t.click(); return Boolean(t);`
+  );
+  await sleep(1200);
+  const asked = await evaluate(
+    ws,
+    `const s = deepAll('.sugg button')[0]; if (s) s.click(); return s ? s.textContent.trim() : null;`
+  );
+  await sleep(6000);
+  const answer = await evaluate(
+    ws,
+    `const m = deepAll('.m.a'); return m.length ? m[m.length - 1].textContent.replace(/\\s+/g, ' ').trim() : null;`
+  );
+  // The finished investigation must be on the board, so the story must be the real one.
+  const ok = Boolean(
+    skipped && opened && asked && answer && answer.includes("outdoor gear")
+  );
+  return { ok, skipped, opened, asked, answer };
+}
 
 let exitCode = 1;
 try {
@@ -114,6 +158,11 @@ try {
       report.checks.every((c) => c.status === "ok" || c.status === "failed");
     if (settled) break;
   }
+  if (interact) {
+    report.interaction = await runInteraction(ws);
+  }
+  // Optional: hold before the screenshot (e.g. HOLD_MS=20000 to catch the dig mid-way).
+  if (process.env.HOLD_MS) await sleep(Number(process.env.HOLD_MS));
   const shot = await send(ws, "Page.captureScreenshot", { format: "png" });
   writeFileSync(shotPath, Buffer.from(shot.data, "base64"));
 
@@ -129,7 +178,9 @@ try {
     )
   );
   const allOk =
-    report?.checks?.length > 0 && report.checks.every((c) => c.status === "ok");
+    report?.checks?.length > 0 &&
+    report.checks.every((c) => c.status === "ok") &&
+    (!interact || report.interaction?.ok === true);
   exitCode = allOk ? 0 : 1;
   ws.close();
 } catch (error) {

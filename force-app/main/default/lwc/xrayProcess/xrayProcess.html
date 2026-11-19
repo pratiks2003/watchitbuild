@@ -1,0 +1,74 @@
+<template>
+  <section
+    class={sectionCls}
+    aria-label="Reconstructed business process"
+    aria-hidden={ariaHidden}
+  >
+    <div class="ph">
+      <span class="t">the business process · reconstructed</span>
+      <span class="n"
+        >9 steps · 6 teams · 7 confirmed · 1 likely · 1 outside Salesforce</span
+      >
+      <span class="spacer"></span>
+      <button class="btn" onclick={handlePlay}>▶ Play the process</button>
+    </div>
+    <div class="lanebody" lwc:ref="lane" lwc:dom="manual"></div>
+    <p class="caption" aria-live="polite">
+      <template for:each={caption} for:item="s">
+        <b key={s.key} lwc:if={s.bold}>{s.text}</b>
+        <span key={s.key} lwc:else>{s.text}</span>
+      </template>
+    </p>
+    <div class="duo">
+      <div class="story">
+        <h3>
+          <span class="av" aria-hidden="true">A</span>The business in plain
+          words
+        </h3>
+        <ol>
+          <template for:each={story} for:item="s">
+            <li key={s.key} class={s.cls}>
+              <span
+                >{s.text}<template lwc:if={s.likely}
+                  ><span class="tagl">likely</span></template
+                ></span
+              >
+            </li>
+          </template>
+        </ol>
+      </div>
+      <div class="lens">
+        <h3>{lens.title} <span class="chip">{lens.chip}</span></h3>
+        <ul>
+          <template for:each={lens.items} for:item="it">
+            <li key={it.key}>
+              <span>
+                <template for:each={it.segments} for:item="s">
+                  <b key={s.key} lwc:if={s.bold}>{s.text}</b>
+                  <code key={s.key} lwc:elseif={s.code}>{s.text}</code>
+                  <span key={s.key} lwc:else>{s.text}</span>
+                </template>
+              </span>
+            </li>
+          </template>
+        </ul>
+        <template lwc:if={newHere}>
+          <h4>{cheatSheet.title}</h4>
+          <ul>
+            <template for:each={cheatSheet.items} for:item="it">
+              <li key={it.key}>
+                <span>
+                  <template for:each={it.segments} for:item="s">
+                    <b key={s.key} lwc:if={s.bold}>{s.text}</b>
+                    <code key={s.key} lwc:elseif={s.code}>{s.text}</code>
+                    <span key={s.key} lwc:else>{s.text}</span>
+                  </template>
+                </span>
+              </li>
+            </template>
+          </ul>
+        </template>
+      </div>
+    </div>
+  </section>
+</template>

@@ -1,0 +1,68 @@
+<template>
+  <aside
+    class={drawerCls}
+    aria-label="Chat with a crew member"
+    aria-hidden={ariaHidden}
+    onkeydown={handleKeydown}
+  >
+    <template lwc:if={open}>
+      <header>
+        <span class="av" style={avatarStyle} aria-hidden="true">{initial}</span>
+        <div>
+          <b>{info.name}</b>
+          <small>{info.role}</small>
+          <small class="live-now">{activity}</small>
+        </div>
+        <button class="x" aria-label="Close chat" onclick={close}>×</button>
+      </header>
+      <div class="kb">
+        Answers only from what the crew has found:
+        <b>{findingsCount} findings</b> so far
+      </div>
+      <div class="mode">
+        <span>Answer style</span>
+        <div class="seg" role="group" aria-label="Answer style">
+          <button aria-pressed={plainPressed} onclick={setPlain}>
+            Plain words
+          </button>
+          <button aria-pressed={techPressed} onclick={setTech}>
+            Technical
+          </button>
+        </div>
+      </div>
+      <div class="msgs" lwc:ref="msgs" aria-live="polite">
+        <template for:each={messages} for:item="m">
+          <div key={m.key} class={m.cls} style={m.style}>
+            {m.text}
+            <template lwc:if={m.hasSource}
+              ><span class="src">source: {m.source}</span></template
+            >
+          </div>
+        </template>
+        <template lwc:if={typing}>
+          <div class="m a typing" aria-label="Typing">
+            <span></span><span></span><span></span>
+          </div>
+        </template>
+      </div>
+      <div class="sugg">
+        <template for:each={suggestions} for:item="s">
+          <button key={s.key} data-text={s.text} onclick={handleSuggestion}>
+            {s.text}
+          </button>
+        </template>
+      </div>
+      <form onsubmit={handleSubmit}>
+        <input
+          lwc:ref="input"
+          type="text"
+          autocomplete="off"
+          aria-label="Your question"
+          placeholder={placeholder}
+          oninput={handleDraft}
+        />
+        <button class="btn" type="submit">Ask</button>
+      </form>
+    </template>
+  </aside>
+</template>

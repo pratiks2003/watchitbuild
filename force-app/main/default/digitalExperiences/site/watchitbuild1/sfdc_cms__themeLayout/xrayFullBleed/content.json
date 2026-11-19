@@ -1,0 +1,27 @@
+{
+  "type": "sfdc_cms__themeLayout",
+  "title": "Org X-Ray Full Bleed",
+  "contentBody": {
+    "component": {
+      "attributes": {},
+      "children": [
+        {
+          "id": "b7d2e1ef-4c5f-4d9b-8a32-6e8f9cad1b22",
+          "name": "header",
+          "title": "Theme Header",
+          "type": "region"
+        },
+        {
+          "id": "c8e3f2a0-5d6a-4eac-9b43-7f9a0dbe2c33",
+          "name": "footer",
+          "title": "Theme Footer",
+          "type": "region"
+        }
+      ],
+      "definition": "community_layout:simpleThemeLayout",
+      "id": "a6c1f0de-3b4e-4c8a-9f21-5d7e8b9c0a11",
+      "type": "component"
+    }
+  },
+  "urlName": "org-x-ray-full-bleed"
+}
