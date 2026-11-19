@@ -131,6 +131,23 @@ try {
     if (msg.id && pending.has(msg.id)) {
       pending.get(msg.id)(msg.result ?? msg.error);
       pending.delete(msg.id);
+    } else if (
+      process.env.LOG_APEX &&
+      msg.method === "Network.requestWillBeSent" &&
+      /apex/i.test(msg.params.request.url)
+    ) {
+      // LOG_APEX=1 prints each Apex call the page makes (debugging guest access).
+      console.error(
+        "APEX",
+        msg.params.request.url,
+        (msg.params.request.postData ?? "").slice(0, 500)
+      );
+    } else if (
+      process.env.LOG_APEX &&
+      msg.method === "Network.responseReceived" &&
+      /apex/i.test(msg.params.response.url)
+    ) {
+      console.error("APEX-RESPONSE", msg.params.response.status);
     } else if (msg.method === "Runtime.exceptionThrown") {
       consoleErrors.push(
         msg.params.exceptionDetails?.exception?.description ?? "exception"
@@ -145,6 +162,7 @@ try {
     }
   });
   await send(ws, "Runtime.enable");
+  if (process.env.LOG_APEX) await send(ws, "Network.enable");
   await send(ws, "Page.enable");
   await send(ws, "Page.navigate", { url: siteUrl });
 
