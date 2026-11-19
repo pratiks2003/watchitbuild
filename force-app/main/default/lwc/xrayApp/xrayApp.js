@@ -79,7 +79,8 @@ export default class XrayApp extends LightningElement {
         onAgentClick: (k) => this.openChat(k)
       });
       this.world.start();
-      this.sceneStatus = "ok";
+      // "ok" only if the 3D canvas exactly covers the panel, so labels line up with objects.
+      this.sceneStatus = this.world.fitsHost() ? "ok" : "failed";
     } catch {
       // No WebGL (or the library failed): the panels still tell the whole story.
       this.noGl = true;

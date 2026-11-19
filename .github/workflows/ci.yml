@@ -69,6 +69,7 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           CHROME_PATH: google-chrome
+          DPR: "2" # high-DPI, like a Retina laptop: catches canvas/label misalignment
         run: |
           for attempt in 1 2 3 4 5 6; do
             if node scripts/smoke/guest-smoke.mjs "$SITE_URL" smoke.png 45000 --interact; then exit 0; fi

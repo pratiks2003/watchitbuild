@@ -146,6 +146,16 @@ export class XrayWorld {
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = T.PCFSoftShadowMap;
+    // Size the canvas with inline styles: it is added by script, so the component's
+    // scoped CSS does not reach it. Without this, high-DPI screens show the canvas at
+    // its 2x drawing size (zoomed and offset) while the HTML labels stay at 1x.
+    Object.assign(this.renderer.domElement.style, {
+      position: "absolute",
+      inset: "0",
+      width: "100%",
+      height: "100%",
+      display: "block"
+    });
     this.host.insertBefore(this.renderer.domElement, this.host.firstChild);
     this.scene = new T.Scene();
     this.cam = new T.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
@@ -170,6 +180,15 @@ export class XrayWorld {
       this.raf = requestAnimationFrame(tick);
     };
     this.raf = requestAnimationFrame(tick);
+  }
+
+  /** True when the canvas is drawn at exactly the panel's size (guards the high-DPI bug). */
+  fitsHost() {
+    const c = this.renderer.domElement.getBoundingClientRect();
+    const h = this.host.getBoundingClientRect();
+    return (
+      Math.abs(c.width - h.width) <= 2 && Math.abs(c.height - h.height) <= 2
+    );
   }
 
   destroy() {
