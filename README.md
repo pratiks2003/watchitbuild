@@ -6,7 +6,7 @@ Built entirely on Salesforce: Experience Cloud (LWR), Lightning Web Components, 
 
 **Live site:** https://orgfarm-bd59095f65-dev-ed.develop.my.site.com/watchitbuild/
 
-> Status: phase 0 (setup and technical checks) is done. See [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) for the plan and progress.
+> Status: phases 0–2 are live (3D dig, real AI investigation, upload your own org). See [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md).
 
 ## How it works
 
@@ -18,6 +18,10 @@ Visitor's browser (public LWR site)                 watchitbuild org
 
 - The visitor's org data never leaves their browser. Our org stores no scans.
 - The model only proposes the next step. Apex checks every response against a fixed contract, and the tools are plain code that only reads.
+
+## Investigate your own org
+
+On the site, press **Use your org**. Run the command it shows against a sandbox or dev org (it exports metadata only, no records), then choose the `orgxray.zip` it creates. The zip is read in your browser tab and never uploaded or stored; while the crew works, only the pieces it reads are sent to the AI, one step at a time.
 
 ## Project layout
 

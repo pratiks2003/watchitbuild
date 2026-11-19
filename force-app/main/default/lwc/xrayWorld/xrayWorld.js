@@ -229,6 +229,8 @@ export class XrayWorld {
     cancelAnimationFrame(this.raf);
     this.resizeObserver?.disconnect();
     this.renderer?.dispose();
+    this.renderer?.domElement?.remove();
+    this.labelsEl.textContent = "";
   }
 
   resize() {

@@ -225,6 +225,10 @@ button {
   font-size: 11px;
   color: var(--cy);
 }
+.btn.org {
+  border-color: var(--hi);
+  color: var(--hi);
+}
 .btn.live {
   border-color: var(--cy);
   color: var(--cy);

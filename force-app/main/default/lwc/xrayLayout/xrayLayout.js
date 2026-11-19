@@ -76,6 +76,31 @@ export const ICONS = {
   vfpage: "▢"
 };
 
+/** Layering by kind (for uploads without dates). */
+const KIND_BAND = {
+  flow: "recent",
+  processBuilder: "recent",
+  workflow: "recent",
+  trigger: "recent",
+  approval: "mid",
+  validation: "mid",
+  path: "mid",
+  picklist: "mid",
+  class: "older",
+  batch: "older",
+  vfpage: "older",
+  queue: "oldest",
+  permset: "oldest",
+  namedCredential: "oldest"
+};
+const KIND_LABELS = {
+  now: "Objects",
+  recent: "Automation",
+  mid: "Rules and steps",
+  older: "Code",
+  oldest: "Access and integration"
+};
+
 const bandOf = (year) =>
   BANDS.slice(1).find((b) => (year ?? 0) >= b.from && (year ?? 0) <= b.to) ??
   BANDS[4];
@@ -94,10 +119,20 @@ function hash(text) {
  * @returns {{ layers, artifacts: Object<string, {name,type,layer,c,icon,title,decoy}>, flags: [string, number][], totals }}
  */
 export function buildLayout(index) {
-  const layers = BANDS.map((b) => ({ ...b, count: 0 }));
+  // Uploaded metadata has no build dates: layer by kind instead of pretending to know the year.
+  const byKind =
+    index.layering === "kind" || !index.components.some((c) => c.year);
+  const layers = BANDS.map((b) => ({
+    ...b,
+    label: byKind ? (KIND_LABELS[b.k] ?? b.label) : b.label,
+    count: 0
+  }));
   const byLayer = Object.fromEntries(BANDS.map((b) => [b.k, []]));
   index.components.forEach((component) => {
-    const band = bandOf(component.year);
+    const band = byKind
+      ? (BANDS.find((b) => b.k === (KIND_BAND[component.type] ?? "older")) ??
+        BANDS[3])
+      : bandOf(component.year);
     layers.find((l) => l.k === band.k).count++;
     byLayer[band.k].push(component);
   });
@@ -132,12 +167,16 @@ export function buildLayout(index) {
   });
 
   const flags = [...index.objects]
-    .sort((a, b) => (b.records ?? 0) - (a.records ?? 0))
+    .sort(
+      (a, b) =>
+        (b.records ?? b.touchedBy ?? 0) - (a.records ?? a.touchedBy ?? 0)
+    )
     .slice(0, MAX_FLAGS)
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((o, i) => [o.name, FLAG_X[i]]);
 
   return {
+    byKind,
     layers,
     artifacts,
     flags,
