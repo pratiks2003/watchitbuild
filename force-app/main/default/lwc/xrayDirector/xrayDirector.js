@@ -1,5 +1,13 @@
 /* eslint-disable @lwc/lwc/no-async-operation -- the dig is a timed animation: timers and rAF are intended */
-import { SURF, ZT, SX, floorOf, artifactX } from "c/xrayWorld";
+import {
+  SURF,
+  ZT,
+  SX,
+  floorOf,
+  artifactX,
+  BUCKET_REST,
+  PIP_FETCH
+} from "c/xrayWorld";
 import { CARDS, FLAGS } from "c/xrayDemoData";
 
 class Aborted extends Error {}
@@ -190,13 +198,13 @@ export class XrayDirector {
             }
             const k = Math.min(1, (now - start) / duration);
             w.bucket.position.y =
-              fromY + 0.3 + (SURF + 0.6 - fromY - 0.3) * (1 - (1 - k) ** 3);
+              fromY + 0.3 + (BUCKET_REST - fromY - 0.3) * (1 - (1 - k) ** 3);
             if (k < 1) requestAnimationFrame(step);
             else resolve();
           };
           requestAnimationFrame(step);
         });
-        await this.walk("pip", [[SX + 1.0, SURF, 3.0]], my, 3);
+        await this.walk("pip", [PIP_FETCH], my, 3);
         this.face("pip", -1);
         w.bucketCard.visible = false;
         w.chars.pip.carry.visible = true;

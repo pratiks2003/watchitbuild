@@ -32,8 +32,10 @@ const chrome = spawn(
     "--headless=new",
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`,
-    "--use-angle=swiftshader",
-    "--enable-unsafe-swiftshader",
+    // Software WebGL by default (works on CI); GPU=1 uses the real GPU for smooth, true-timing captures.
+    ...(process.env.GPU
+      ? ["--use-angle=metal", "--enable-gpu"]
+      : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]),
     "--window-size=1280,1000",
     "--no-first-run",
     "about:blank"
@@ -163,6 +165,25 @@ try {
   }
   // Optional: hold before the screenshot (e.g. HOLD_MS=20000 to catch the dig mid-way).
   if (process.env.HOLD_MS) await sleep(Number(process.env.HOLD_MS));
+  // Optional: CLICK="Button text" presses that button (shadow DOM included) before the filmstrip.
+  if (process.env.CLICK) {
+    await evaluate(
+      ws,
+      `const b = deepAll('button').find(x => x.textContent.trim() === ${JSON.stringify(process.env.CLICK)}); if (b) b.click(); return Boolean(b);`
+    );
+  }
+  // Optional filmstrip: FILMSTRIP="5000,10000,20000" saves one screenshot per delay (ms from now).
+  if (process.env.FILMSTRIP) {
+    const start = Date.now();
+    for (const at of process.env.FILMSTRIP.split(",").map(Number)) {
+      await sleep(Math.max(0, at - (Date.now() - start)));
+      const frame = await send(ws, "Page.captureScreenshot", { format: "png" });
+      writeFileSync(
+        shotPath.replace(/\.png$/, `-${at}.png`),
+        Buffer.from(frame.data, "base64")
+      );
+    }
+  }
   const shot = await send(ws, "Page.captureScreenshot", { format: "png" });
   writeFileSync(shotPath, Buffer.from(shot.data, "base64"));
 
