@@ -37,6 +37,8 @@ const chrome = spawn(
       ? ["--use-angle=metal", "--enable-gpu"]
       : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]),
     "--window-size=1280,1000",
+    // DPR=2 simulates a Retina/high-DPI screen.
+    `--force-device-scale-factor=${process.env.DPR ?? 1}`,
     "--no-first-run",
     "about:blank"
   ],
