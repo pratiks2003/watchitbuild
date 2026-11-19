@@ -5,6 +5,7 @@ import { XrayWorld } from "c/xrayWorld";
 import { XrayDirector } from "c/xrayDirector";
 import { QUESTIONS, ROLES, AGENTS, CARDS } from "c/xrayDemoData";
 import { toSegments } from "c/xrayText";
+import { getConfig } from "c/xrayApi";
 
 const PHASES = ["Survey", "Dig", "Verify", "Map"];
 const TOTAL = { demo: 2140, big: 18640 };
@@ -34,6 +35,7 @@ export default class XrayApp extends LightningElement {
   xray = true;
   noGl = false;
   sceneStatus = "loading";
+  liveConfig = null;
 
   phaseIndex = 0;
   caption = { plain: "Loading the dig site…", tech: "Loading the dig site…" };
@@ -69,6 +71,10 @@ export default class XrayApp extends LightningElement {
   }
 
   async boot() {
+    // Live AI availability (kill switch). The recorded demo works either way.
+    getConfig().then((config) => {
+      this.liveConfig = config;
+    });
     try {
       await loadScript(this, THREE_URL);
       this.world = new XrayWorld({
