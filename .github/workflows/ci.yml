@@ -30,10 +30,10 @@ jobs:
       - run: npm ci
       - run: npm run prettier:verify
       - run: npm run lint
-      - run: npm run test:unit -- --passWithNoTests
+      - run: npm run test:unit
 
   salesforce:
-    name: ${{ github.event_name == 'pull_request' && 'Validate against org' || 'Deploy, publish, smoke test' }}
+    name: Salesforce org (validate on PR, deploy on main)
     needs: quality
     runs-on: ubuntu-latest
     steps:
