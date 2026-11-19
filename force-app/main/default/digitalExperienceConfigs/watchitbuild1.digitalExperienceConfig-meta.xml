@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DigitalExperienceConfig xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>watchitbuild</label>
+    <site>
+        <urlPathPrefix>watchitbuild</urlPathPrefix>
+    </site>
+    <space>site/watchitbuild1</space>
+</DigitalExperienceConfig>
