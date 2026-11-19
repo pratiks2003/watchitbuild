@@ -7,10 +7,13 @@ let messageId = 0;
 
 /** Chat drawer for one crew member. Answers only from the findings on the board. */
 export default class XrayChat extends LightningElement {
-  @api found = [];
+  /** @type {{finding: object, agent: string}[]} */
+  @api findings = [];
+  @api summary = null;
+  /** @type {string[]} Rex's challenges so far */
+  @api challenges = [];
   @api activity = "";
   @api confidence = 0;
-  @api latest = null;
   @api defaultStyle = "plain";
 
   history = {};
@@ -28,7 +31,7 @@ export default class XrayChat extends LightningElement {
     if (value && !this.history[value]) {
       this.history = {
         ...this.history,
-        [value]: [this.message("a", greeting(value, this.foundSet.size))]
+        [value]: [this.message("a", greeting(value, this.findingsCount))]
       };
     }
     if (value) {
@@ -82,12 +85,8 @@ export default class XrayChat extends LightningElement {
     return String(this.style === "tech");
   }
 
-  get foundSet() {
-    return new Set(this.found ?? []);
-  }
-
   get findingsCount() {
-    return [...this.foundSet].filter((id) => id !== "refundGuess").length;
+    return (this.findings ?? []).length;
   }
 
   get messages() {
@@ -128,11 +127,12 @@ export default class XrayChat extends LightningElement {
     this.scrollDown();
     await this.pause(650);
     const answer = reply(agent, question, {
-      found: this.foundSet,
+      findings: this.findings ?? [],
+      summary: this.summary,
+      challenges: this.challenges ?? [],
       style: this.style,
       activity: this.activity,
-      confidence: this.confidence,
-      latest: this.latest
+      confidence: this.confidence
     });
     this.typing = false;
     const msg = this.message("a", "", null);

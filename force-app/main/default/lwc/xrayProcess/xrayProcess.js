@@ -1,51 +1,67 @@
 /* eslint-disable @lwc/lwc/no-async-operation -- the "play the process" token animation */
 import { LightningElement, api } from "lwc";
-import {
-  LANES,
-  PROCESS_NODES,
-  PROCESS_CAPTIONS,
-  PROCESS_BRANCH,
-  PLAIN,
-  STORY_ORDER,
-  STORY_GAP,
-  CARDS,
-  LENS,
-  NEW_HERE,
-  ROLES
-} from "c/xrayDemoData";
+import { ROLES } from "c/xrayDemoData";
 import { toSegments } from "c/xrayText";
 
 const SVG = "http://www.w3.org/2000/svg";
 const LANE_H = 66;
 const TOP = 30;
-const center = (n) => [n[1], TOP + n[0] * LANE_H + LANE_H / 2];
+const LEFT = 170;
+const STEP_W = 150;
 const listOf = (items, prefix) =>
-  items.map((text, i) => ({
+  (items ?? []).map((text, i) => ({
     key: `${prefix}${i}`,
     segments: toSegments(text)
   }));
 
-/** The reconstructed business process: swimlane, plain-words story and "what this means for you". */
+const LENS_TITLES = {
+  dev: "Where the logic lives",
+  po: "What a product owner should look at",
+  user: "What happens when you…"
+};
+
+/** The reconstructed business process from Ada's summary: swimlane, plain story, role lens. */
 export default class XrayProcess extends LightningElement {
   @api visible = false;
   @api audience = "dev";
   @api newHere = false;
-  @api found = [];
 
   captionText =
-    "Press **Play the process** to follow one customer, Maya from Summit Lodge, through the whole business.";
-  _drawn = false;
+    "Press **Play the process** to follow one customer through the whole business.";
+  _summary = null;
+  _drawnFor = null;
   _token = 0;
 
+  /** { process: { lanes, steps }, story, lens: { dev, po, user }, newHere: { tech, biz } } */
+  @api
+  get summary() {
+    return this._summary;
+  }
+  set summary(value) {
+    this._summary = value;
+    this._token++;
+    this.captionText =
+      "Press **Play the process** to follow one customer through the whole business.";
+  }
+
   renderedCallback() {
-    if (this.visible && !this._drawn && this.refs.lane) {
+    if (
+      this.visible &&
+      this.hasProcess &&
+      this._drawnFor !== this._summary &&
+      this.refs.lane
+    ) {
       this.drawLane();
-      this._drawn = true;
+      this._drawnFor = this._summary;
     }
   }
 
   disconnectedCallback() {
     this._token++;
+  }
+
+  get hasProcess() {
+    return (this._summary?.process?.steps?.length ?? 0) >= 2;
   }
 
   get sectionCls() {
@@ -56,51 +72,65 @@ export default class XrayProcess extends LightningElement {
     return String(!this.visible);
   }
 
+  get stats() {
+    const steps = this._summary?.process?.steps ?? [];
+    const n = (c) => steps.filter((s) => s.confidence === c).length;
+    const outside = steps.filter((s) => s.outside).length;
+    return `${steps.length} steps · ${this._summary?.process?.lanes?.length ?? 0} teams · ${n("confirmed")} confirmed · ${n("likely")} likely${outside ? ` · ${outside} outside Salesforce` : ""}`;
+  }
+
   get caption() {
     return toSegments(this.captionText);
   }
 
   get story() {
-    const found = new Set(this.found ?? []);
-    const have = STORY_ORDER.filter((id) => found.has(id)).map((id) => ({
-      key: id,
-      text: PLAIN[id],
-      likely: CARDS[id].status === "likely",
-      cls: "item"
+    return (this._summary?.story ?? []).map((text, i) => ({
+      key: `s${i}`,
+      text
     }));
-    const missing = STORY_ORDER.filter((id) => !found.has(id)).map((id) => ({
-      key: id,
-      text: `Not found yet: ${STORY_GAP[id]}`,
-      likely: false,
-      cls: "item gap"
-    }));
-    return [...have, ...missing];
   }
 
   get lens() {
-    const lens = LENS[this.audience] ?? LENS.dev;
     return {
-      title: lens.title,
+      title: LENS_TITLES[this.audience] ?? LENS_TITLES.dev,
       chip: ROLES[this.audience]?.label ?? "",
-      items: listOf(lens.items, "l")
+      items: listOf(this._summary?.lens?.[this.audience], "l")
     };
   }
 
   get cheatSheet() {
-    const sheet = this.audience === "dev" ? NEW_HERE.tech : NEW_HERE.biz;
-    return { title: sheet.title, items: listOf(sheet.items, "n") };
+    const tech = this.audience === "dev";
+    return {
+      title: tech
+        ? "New developer cheat sheet"
+        : "Your first-week business steps",
+      items: listOf(
+        tech ? this._summary?.newHere?.tech : this._summary?.newHere?.biz,
+        "n"
+      )
+    };
+  }
+
+  center(step, i) {
+    return [LEFT + 60 + i * STEP_W, TOP + step.lane * LANE_H + LANE_H / 2];
   }
 
   drawLane() {
     const host = this.refs.lane;
+    const { lanes, steps } = this._summary.process;
+    const width = Math.max(980, LEFT + 120 + steps.length * STEP_W);
     host.textContent = "";
     const svg = document.createElementNS(SVG, "svg");
-    svg.setAttribute("viewBox", "0 0 1440 470");
+    svg.setAttribute(
+      "viewBox",
+      `0 0 ${width} ${TOP + lanes.length * LANE_H + 10}`
+    );
     svg.setAttribute("role", "img");
     svg.setAttribute(
       "aria-label",
-      "Business process across six teams, from customer enquiry to refund."
+      `Business process across ${lanes.length} teams in ${steps.length} steps.`
     );
+    svg.style.minWidth = `${Math.min(width, 1600)}px`;
     const el = (tag, attrs, parent = svg, text) => {
       const node = document.createElementNS(SVG, tag);
       Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
@@ -108,11 +138,11 @@ export default class XrayProcess extends LightningElement {
       parent.appendChild(node);
       return node;
     };
-    LANES.forEach((name, i) => {
+    lanes.forEach((name, i) => {
       el("rect", {
         x: 0,
         y: TOP + i * LANE_H,
-        width: 1440,
+        width,
         height: LANE_H,
         class: i % 2 ? "lnbg alt" : "lnbg"
       });
@@ -123,23 +153,20 @@ export default class XrayProcess extends LightningElement {
         name.toUpperCase()
       );
     });
-    const main = PROCESS_NODES.slice(0, 8)
-      .map((n, i) => `${i ? "L" : "M"}${center(n).join(",")}`)
+    const path = steps
+      .map((s, i) => `${i ? "L" : "M"}${this.center(s, i).join(",")}`)
       .join(" ");
-    this._path = el("path", { d: main, class: "flow" });
-    const [bx, by] = center(PROCESS_NODES[7]);
-    const [rx, ry] = center(PROCESS_NODES[8]);
-    el("path", { d: `M${bx},${by} L${rx},${ry}`, class: "flow branch" });
-    PROCESS_NODES.forEach((n) => {
-      const [x, y] = center(n);
-      const g = el("g", { class: n[4] === "l" ? "node out" : "node" });
+    this._path = el("path", { d: path, class: "flow" });
+    steps.forEach((s, i) => {
+      const [x, y] = this.center(s, i);
+      const g = el("g", { class: s.outside ? "node out" : "node" });
       el("rect", { x: x - 66, y: y - 24, width: 132, height: 48, rx: 6 }, g);
-      el("text", { x, y: y - 3, "text-anchor": "middle" }, g, n[2]);
+      el("text", { x, y: y - 3, "text-anchor": "middle" }, g, s.label);
       el(
         "text",
         { x, y: y + 13, "text-anchor": "middle", class: "ev" },
         g,
-        n[3]
+        s.evidence
       );
       el(
         "circle",
@@ -147,41 +174,47 @@ export default class XrayProcess extends LightningElement {
           cx: x + 58,
           cy: y - 16,
           r: 5,
-          class: n[4] === "c" ? "dot ok" : "dot likely"
+          class: s.confidence === "confirmed" ? "dot ok" : "dot likely"
         },
         g
       );
     });
     el(
       "text",
-      { x: 1170, y: 20, class: "legend" },
+      { x: width - 270, y: 20, class: "legend" },
       svg,
       "green = confirmed · yellow = likely"
     );
     this._tokenG = el("g", { class: "token", opacity: 0 });
     el("circle", { r: 12 }, this._tokenG);
-    el("text", { x: 0, y: -18, "text-anchor": "middle" }, this._tokenG, "MAYA");
+    el(
+      "text",
+      { x: 0, y: -18, "text-anchor": "middle" },
+      this._tokenG,
+      "CUSTOMER"
+    );
     host.appendChild(svg);
   }
 
   async handlePlay() {
-    if (!this._path) return;
+    if (!this._path || !this.hasProcess) return;
     const my = ++this._token;
     const reduce = window.matchMedia?.(
       "(prefers-reduced-motion: reduce)"
     ).matches;
+    const steps = this._summary.process.steps;
     const path = this._path;
     const length = path.getTotalLength();
-    const stops = PROCESS_NODES.slice(0, 8).map((n) => {
-      const [x, y] = center(n);
+    const stops = steps.map((s, i) => {
+      const [x, y] = this.center(s, i);
       let best = 0;
       let bestD = Infinity;
-      for (let s = 0; s <= length; s += 4) {
-        const p = path.getPointAtLength(s);
-        const d = Math.hypot(p.x - x, p.y - y);
-        if (d < bestD) {
-          bestD = d;
-          best = s;
+      for (let d = 0; d <= length; d += 4) {
+        const p = path.getPointAtLength(d);
+        const dist = Math.hypot(p.x - x, p.y - y);
+        if (dist < bestD) {
+          bestD = dist;
+          best = d;
         }
       }
       return best;
@@ -192,29 +225,29 @@ export default class XrayProcess extends LightningElement {
       const from = pos;
       const to = stops[i];
       const duration = reduce ? 0 : Math.max(300, (to - from) * 4);
-      // eslint-disable-next-line no-await-in-loop
+      // eslint-disable-next-line no-await-in-loop -- the token moves step by step
       await new Promise((resolve) => {
         const start = performance.now();
-        const step = (now) => {
+        const tick = (now) => {
           if (my !== this._token) return;
           const k = duration ? Math.min(1, (now - start) / duration) : 1;
           const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
           const p = path.getPointAtLength(from + (to - from) * e);
           this._tokenG.setAttribute("transform", `translate(${p.x},${p.y})`);
-          if (k < 1) requestAnimationFrame(step);
+          if (k < 1) requestAnimationFrame(tick);
           else resolve();
         };
-        requestAnimationFrame(step);
+        requestAnimationFrame(tick);
       });
       if (my !== this._token) return;
       pos = to;
-      this.captionText = `**Step ${i + 1}.** ${PROCESS_CAPTIONS[i]}`;
+      const s = steps[i];
+      this.captionText = `**Step ${i + 1} · ${this._summary.process.lanes[s.lane]}.** ${s.label}${s.evidence ? ` (${s.evidence})` : ""}${s.outside ? " · outside Salesforce" : ""}`;
       // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => setTimeout(resolve, reduce ? 0 : 1900));
       if (my !== this._token) return;
     }
-    this.captionText = PROCESS_BRANCH;
-    const [x, y] = center(PROCESS_NODES[8]);
-    this._tokenG.setAttribute("transform", `translate(${x},${y})`);
+    this.captionText =
+      "**That's the whole journey.** Click any crew member to ask about a step.";
   }
 }

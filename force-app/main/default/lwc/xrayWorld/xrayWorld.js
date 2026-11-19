@@ -1,5 +1,5 @@
 /* eslint-disable @lwc/lwc/no-async-operation -- a WebGL render loop needs requestAnimationFrame */
-import { AGENTS, LAYERS, ARTIFACTS, FLAGS } from "c/xrayDemoData";
+import { AGENTS } from "c/xrayDemoData";
 
 /** World coordinates (1 unit = 1 voxel). */
 export const SURF = 0.25; // walking height on the grass
@@ -13,10 +13,6 @@ export const PIP_FETCH = [SX + 1.6, SURF, 4.75]; // where Pip collects the card
 const COLS = 24;
 const ROWS = 10;
 const colX = (c) => c - 11.5;
-const LAYER_BY_KEY = Object.fromEntries(LAYERS.map((l) => [l.k, l]));
-const layerOfRow = (r) => LAYERS.find((l) => l.rows.includes(r));
-export const floorOf = (key) => LAYER_BY_KEY[key].floor;
-export const artifactX = (id) => colX(ARTIFACTS[id].c);
 
 const VERBS = {
   dig: "digging",
@@ -110,8 +106,13 @@ const CREW = {
  * The director (c/xrayDirector) moves the crew and calls the public methods.
  */
 export class XrayWorld {
-  constructor({ THREE, host, labels, onAgentClick, reduceMotion }) {
+  constructor({ THREE, host, labels, layout, onAgentClick, reduceMotion }) {
     this.T = THREE;
+    this.layout = layout;
+    this.LAYERS = layout.layers;
+    this.ARTIFACTS = layout.artifacts;
+    this.FLAGS = layout.flags;
+    this.layerByKey = Object.fromEntries(layout.layers.map((l) => [l.k, l]));
     this.host = host;
     this.labelsEl = labels;
     this.onAgentClick = onAgentClick;
@@ -136,6 +137,39 @@ export class XrayWorld {
     this.found = new Set();
     this.flash = new Set();
     this.flagsOn = new Set();
+  }
+
+  floorOf(key) {
+    return this.layerByKey[key].floor;
+  }
+
+  layerOfRow(r) {
+    return this.LAYERS.find((l) => l.rows.includes(r));
+  }
+
+  /** x position of a buried component, or null if it is not drawn. */
+  artifactX(name) {
+    const a = this.ARTIFACTS[name];
+    return a ? colX(a.c) : null;
+  }
+
+  /** x position of an object's survey flag, or null. */
+  flagX(objectName) {
+    return this.FLAGS.find(([n]) => n === objectName)?.[1] ?? null;
+  }
+
+  /** Briefly lights up the buried outlines of the named components (a "listing" pulse). */
+  pulse(names) {
+    names.forEach((name) => {
+      const a = this.art[name];
+      if (!a || this.found.has(name)) return;
+      a.ghost.material.opacity = 1;
+      a.ghost.material.color.set("#ffd84d");
+      setTimeout(() => {
+        a.ghost.material.opacity = a.decoy ? 0.35 : 0.75;
+        a.ghost.material.color.set(a.decoy ? "#9bb8d6" : "#7fd3ff");
+      }, 1400 / this.speed);
+    });
   }
 
   /* ---------- lifecycle ---------- */
@@ -278,7 +312,7 @@ export class XrayWorld {
 
   buildTerrain() {
     const T = this.T;
-    LAYERS.forEach((l) => {
+    this.LAYERS.forEach((l) => {
       const top = -l.rows[0];
       const bottom = -(l.rows[1] + 1);
       this.box(24, top - bottom, 8, l.color, 0, (top + bottom) / 2, -1);
@@ -294,7 +328,7 @@ export class XrayWorld {
     for (let c = 0; c < COLS; c++) {
       for (let r = 0; r < ROWS; r++) {
         for (let d = 0; d < 2; d++) {
-          const base = new T.Color(layerOfRow(r).color);
+          const base = new T.Color(this.layerOfRow(r).color);
           const v = 0.9 + ((c * 7 + r * 13 + d * 5) % 9) / 45;
           color.setRGB(base.r * v, base.g * v, base.b * v);
           this.voxels.setColorAt(this.vIdx(c, r, d), color);
@@ -411,7 +445,7 @@ export class XrayWorld {
     this.mini.position.set(0, 1.85, 0.08);
     this.board.add(this.mini);
     // flags
-    this.flags = FLAGS.map(([, x]) => {
+    this.flags = this.FLAGS.map(([, x]) => {
       const g = new T.Group();
       g.position.set(x, SURF, ZF);
       this.box(0.06, 1.1, 0.06, "#3a2a1c", 0, 0.55, 0, g);
@@ -434,8 +468,8 @@ export class XrayWorld {
     lamp(SX - 0.9, SURF + 1.6, 4.7, 9);
     lamp(7.6, SURF + 1.4, -0.4, 8);
     lamp(9.6, SURF + 2.9, 2.0, 8);
-    ["2024", "2021", "2018", "2015"].forEach((k) =>
-      lamp(SX + 1, floorOf(k) + 1.45, 3.25, 6)
+    this.LAYERS.filter((l) => l.floor != null).forEach((l) =>
+      lamp(SX + 1, l.floor + 1.45, 3.25, 6)
     );
     // dust
     const dustMat = this.mat("#dcc196");
@@ -460,9 +494,9 @@ export class XrayWorld {
     g.fillRect(0, 0, 64, 64);
     const glowTex = new T.CanvasTexture(canvas);
     this.art = {};
-    Object.entries(ARTIFACTS).forEach(([id, a]) => {
+    Object.entries(this.ARTIFACTS).forEach(([id, a]) => {
       const x = colX(a.c);
-      const y = floorOf(a.layer) + 0.55;
+      const y = this.floorOf(a.layer) + 0.55;
       const mesh = this.box(
         0.62,
         0.62,
@@ -628,7 +662,7 @@ export class XrayWorld {
       bubble.hidden = true;
       this.labels[`bub_${k}`] = bubble;
     });
-    LAYERS.forEach((l) => {
+    this.LAYERS.forEach((l) => {
       const el = make("div", "layer3");
       const title = document.createElement("span");
       title.textContent = l.label;
@@ -637,12 +671,12 @@ export class XrayWorld {
       this.labels[`layer_${l.k}`] = count;
       this.labels[`layerEl_${l.k}`] = el;
     });
-    FLAGS.forEach(([name], i) => {
+    this.FLAGS.forEach(([name], i) => {
       const el = make("div", "flag3", name);
       el.hidden = true;
       this.labels[`flag_${i}`] = el;
     });
-    Object.entries(ARTIFACTS).forEach(([id, a]) => {
+    Object.entries(this.ARTIFACTS).forEach(([id, a]) => {
       const el = make("div", a.decoy ? "art3 decoy" : "art3");
       const icon = document.createElement("b");
       icon.textContent = a.icon;
@@ -652,7 +686,7 @@ export class XrayWorld {
     });
     this.labels.pin = make("div", "pin3");
     this.labels.pin.hidden = true;
-    this.setBig(false);
+    this.setLayerCounts();
   }
 
   bindInput() {
@@ -730,7 +764,7 @@ export class XrayWorld {
     this.voxels.instanceColor.needsUpdate = true;
     this.backing.instanceMatrix.needsUpdate = true;
     for (let r = 0; r < ROWS; r++) this.removeVoxel(4, r, false);
-    LAYERS.forEach((l) => {
+    this.LAYERS.forEach((l) => {
       this.extent[l.k] = { lo: SX, hi: SX };
     });
     this.found.clear();
@@ -744,7 +778,7 @@ export class XrayWorld {
     });
     this.flagsOn.clear();
     this.flags.forEach((f) => f.scale.set(0.001, 0.001, 0.001));
-    FLAGS.forEach((f, i) => {
+    this.FLAGS.forEach((f, i) => {
       this.labels[`flag_${i}`].hidden = true;
     });
     while (this.mini.children.length) this.mini.remove(this.mini.children[0]);
@@ -794,7 +828,7 @@ export class XrayWorld {
     for (let c = 0; c < COLS; c++) {
       const cx = colX(c);
       if (cx >= e.lo - 0.01 && cx <= e.hi + 0.01) {
-        LAYER_BY_KEY[layer].rows.forEach((r) =>
+        this.layerByKey[layer].rows.forEach((r) =>
           this.removeVoxel(c, r, animate)
         );
       }
@@ -816,7 +850,7 @@ export class XrayWorld {
   showFlag(i, instant) {
     this.flagsOn.add(i);
     this.labels[`flag_${i}`].hidden = false;
-    if (!instant) this.dust(FLAGS[i][1], SURF, ZF, 4);
+    if (!instant) this.dust(this.FLAGS[i][1], SURF, ZF, 4);
   }
 
   addMiniCard() {
@@ -879,11 +913,11 @@ export class XrayWorld {
     );
   }
 
-  setBig(big) {
-    this.big = big;
-    LAYERS.forEach((l) => {
+  /** Layer labels show the real counts from the org's index. */
+  setLayerCounts() {
+    this.LAYERS.forEach((l) => {
       this.labels[`layer_${l.k}`].textContent =
-        `${(big ? l.nBig : l.n).toLocaleString()} components`;
+        l.k === "now" ? `${l.count} objects` : `${l.count} components`;
     });
   }
 
@@ -1158,7 +1192,7 @@ export class XrayWorld {
       if (!b.hidden)
         b.style.transform = `translate(${o.sx}px, ${o.sy - o.h - 8}px) translate(-50%, -100%)`;
     });
-    LAYERS.forEach((l) =>
+    this.LAYERS.forEach((l) =>
       this.place(
         this.labels[`layerEl_${l.k}`],
         -12.2,
@@ -1170,7 +1204,7 @@ export class XrayWorld {
     );
     // flags and artifact labels: decluttered among themselves, and kept off the crew tags
     const others = [];
-    FLAGS.forEach(([, x], i) => {
+    this.FLAGS.forEach(([, x], i) => {
       const el = this.labels[`flag_${i}`];
       if (el.hidden) return;
       const [sx, sy] = this.project(x, SURF + 1.25, ZF);

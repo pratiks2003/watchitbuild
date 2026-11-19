@@ -173,6 +173,13 @@
   line-height: 1.35;
   color: #54463a;
 }
+.src {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: #7a6650;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
 .ft {
   display: flex;
   justify-content: space-between;
@@ -223,7 +230,7 @@
 }
 .cols {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
   align-items: start;
 }
