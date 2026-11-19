@@ -32,6 +32,7 @@ export default class XrayApp extends LightningElement {
   liveConfig = null;
   mode = "replay"; // replay | live
   liveNote = "";
+  uploadOpen = false;
 
   phaseIndex = 0;
   caption = { plain: "Loading the dig site…", tech: "Loading the dig site…" };
@@ -78,18 +79,7 @@ export default class XrayApp extends LightningElement {
     const runPromise = this.loadRun();
     try {
       await loadScript(this, THREE_URL);
-      this.world = new XrayWorld({
-        THREE: window.THREE,
-        host: this.refs.scene,
-        labels: this.refs.labels,
-        layout: this.layout,
-        reduceMotion: this._reduceMotion,
-        onAgentClick: (k) => this.openChat(k)
-      });
-      this.world.start();
-      // "ok" only if the 3D canvas exactly covers the panel, so labels line up with objects.
-      this.sceneStatus = this.world.fitsHost() ? "ok" : "failed";
-      this.player = new XrayPlayer({ world: this.world, ui: this.uiHooks() });
+      this.buildWorld();
     } catch {
       // No WebGL (or the library failed): the panels still tell the whole story.
       this.noGl = true;
@@ -111,6 +101,28 @@ export default class XrayApp extends LightningElement {
   }
 
   /** The recorded real run of the demo org (bundled as a module: fetching static resources is unreliable under LWS). */
+  /** (Re)creates the 3D world and player for the current index. */
+  buildWorld() {
+    this.player?.stop();
+    this.world?.destroy();
+    this.layout = buildLayout(this.index);
+    this.world = new XrayWorld({
+      THREE: window.THREE,
+      host: this.refs.scene,
+      labels: this.refs.labels,
+      layout: this.layout,
+      reduceMotion: this._reduceMotion,
+      onAgentClick: (k) => this.openChat(k)
+    });
+    this.world.start();
+    this.world.follow = this.follow;
+    this.world.setXray(this.xray);
+    // "ok" only if the 3D canvas exactly covers the panel, so labels line up with objects.
+    this.sceneStatus = this.world.fitsHost() ? "ok" : "failed";
+    this.player = new XrayPlayer({ world: this.world, ui: this.uiHooks() });
+    this.player.speed = this.fast ? 2 : 1;
+  }
+
   async loadRun() {
     return DEMO_RUN?.steps?.length ? DEMO_RUN : null;
   }
@@ -153,6 +165,10 @@ export default class XrayApp extends LightningElement {
   async replay() {
     if (!this.player || !this._run) return;
     this._loop?.stop();
+    if (this.index !== DEMO_ORG) {
+      this.index = DEMO_ORG;
+      this.buildWorld();
+    }
     this.mode = "replay";
     this.liveNote = "";
     this.running = true;
@@ -396,6 +412,11 @@ export default class XrayApp extends LightningElement {
     this._loop?.stop();
     this.player?.stop();
     this.running = false;
+    if (this.index !== DEMO_ORG) {
+      this.liveNote = "Stopped. Here is what the crew found so far.";
+      this.resultsVisible = true;
+      return;
+    }
     this.mode = "replay";
     this.liveNote = "";
     await this.showFinished();
@@ -419,6 +440,30 @@ export default class XrayApp extends LightningElement {
   handleOverview() {
     this.follow = true;
     this.world?.overview();
+  }
+
+  openUpload() {
+    this.uploadOpen = true;
+  }
+
+  closeUpload() {
+    this.uploadOpen = false;
+  }
+
+  /** A visitor's org was indexed in the browser: rebuild the dig site from it and send in the crew. */
+  handleIndex(event) {
+    this.takeControl();
+    this.uploadOpen = false;
+    this._loop?.stop();
+    this.index = event.detail.index;
+    this.buildWorld();
+    this.runLive();
+  }
+
+  get orgLabel() {
+    return this.index && this.index !== DEMO_ORG
+      ? "Your org · stays in this browser"
+      : "Alder & Pine Outfitters · demo org";
   }
 
   handleCrewChat(event) {

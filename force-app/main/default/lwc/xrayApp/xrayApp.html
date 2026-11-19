@@ -3,7 +3,7 @@
     <header class="top">
       <div class="brand">
         <span class="spark" aria-hidden="true">✦</span>orgxray
-        <span class="crumb">Alder &amp; Pine Outfitters · demo org</span>
+        <span class="crumb">{orgLabel}</span>
       </div>
       <span class="spacer"></span>
       <div class="ctl">
@@ -45,6 +45,7 @@
           {speedLabel}
         </button>
         <button class="btn" onclick={handleSkip}>Skip to results</button>
+        <button class="btn org" onclick={openUpload}>Use your org</button>
       </div>
     </header>
 
@@ -136,6 +137,13 @@
       summary={summary}
     ></c-xray-process>
   </div>
+
+  <c-xray-upload
+    open={uploadOpen}
+    live-enabled={liveAvailable}
+    onclose={closeUpload}
+    onindex={handleIndex}
+  ></c-xray-upload>
 
   <c-xray-chat
     lwc:ref="chat"

@@ -133,6 +133,34 @@ async function runInteraction(ws) {
   return { ok, skipped, opened, asked, answer };
 }
 
+async function clickButton(ws, label) {
+  return evaluate(
+    ws,
+    `const b = deepAll('button').find(x => x.textContent.trim() === ${JSON.stringify(label)}); if (b) b.click(); return Boolean(b);`
+  );
+}
+async function runUpload(ws, zipPath) {
+  const opened = await clickButton(ws, "Use your org");
+  await sleep(800);
+  const handle = await send(ws, "Runtime.evaluate", {
+    expression: `(() => { ${DEEP} return deepAll('input[type="file"]')[0]; })()`
+  });
+  const objectId = handle?.result?.objectId;
+  if (!objectId) return { ok: false, opened, error: "file input not found" };
+  await send(ws, "DOM.enable");
+  await send(ws, "DOM.setFileInputFiles", { files: [zipPath], objectId });
+  let found = null;
+  for (let i = 0; i < 40 && !found; i++) {
+    await sleep(500);
+    found = await evaluate(
+      ws,
+      `const f = deepAll('.found')[0]; return f ? f.textContent.trim() : null;`
+    );
+  }
+  const started = found ? await clickButton(ws, "✦ Investigate my org") : false;
+  return { ok: Boolean(opened && found && started), found, started };
+}
+
 let exitCode = 1;
 try {
   const ws = await connect();
@@ -205,6 +233,11 @@ try {
   }
   // Optional: hold before the screenshot (e.g. HOLD_MS=20000 to catch the dig mid-way).
   if (process.env.HOLD_MS) await sleep(Number(process.env.HOLD_MS));
+  // Optional: UPLOAD=/path/orgxray.zip runs the "Use your org" flow: open the panel, attach the zip,
+  // wait for it to be indexed in the browser, then start the investigation.
+  if (process.env.UPLOAD) {
+    report.upload = await runUpload(ws, process.env.UPLOAD);
+  }
   // Optional: CLICK="Button text" presses that button (shadow DOM included) before the filmstrip.
   if (process.env.CLICK) {
     await evaluate(
