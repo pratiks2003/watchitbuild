@@ -1,0 +1,143 @@
+<template>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <span class="spark" aria-hidden="true">✦</span>orgxray
+        <span class="crumb">Alder &amp; Pine Outfitters · demo org</span>
+      </div>
+      <span class="spacer"></span>
+      <div class="ctl">
+        <span class="lbl" id="for-label">Explaining for</span>
+        <div class="seg" role="group" aria-labelledby="for-label">
+          <template for:each={roleOptions} for:item="r">
+            <button
+              key={r.value}
+              data-value={r.value}
+              aria-pressed={r.pressed}
+              onclick={handleRole}
+            >
+              {r.label}
+            </button>
+          </template>
+        </div>
+        <button
+          class="chip"
+          aria-pressed={pressedNewHere}
+          onclick={toggleNewHere}
+        >
+          I'm new here
+        </button>
+      </div>
+      <div class="seg" role="group" aria-label="Org size">
+        <button aria-pressed={pressedDemo} onclick={setDemo}>Demo org</button>
+        <button aria-pressed={pressedBig} onclick={setBig}>
+          Production-size
+        </button>
+      </div>
+      <div class="ctl">
+        <button class="btn primary" onclick={handlePlay}>{playLabel}</button>
+        <button class="btn" aria-pressed={pressedFast} onclick={toggleSpeed}>
+          {speedLabel}
+        </button>
+        <button class="btn" onclick={handleSkip}>Skip to results</button>
+      </div>
+    </header>
+
+    <section class="live" aria-live="polite">
+      <ol class="phases" aria-label="Investigation phases">
+        <template for:each={phases} for:item="p">
+          <li key={p.key} class={p.cls}>{p.label}</li>
+        </template>
+      </ol>
+      <p class="now">
+        <span class="for">{explainingFor}</span>
+        <template for:each={captionSegments} for:item="s">
+          <b key={s.key} lwc:if={s.bold}>{s.text}</b>
+          <code key={s.key} lwc:elseif={s.code}>{s.text}</code>
+          <span key={s.key} lwc:else>{s.text}</span>
+        </template>
+      </p>
+      <p class="counter">
+        <b>{readCount}</b> of {readTotal} components read<br />
+        {lookups} lookups · 0 records copied
+      </p>
+    </section>
+
+    <div
+      class="scene"
+      lwc:ref="scene"
+      data-check="scene"
+      data-status={sceneStatus}
+    >
+      <div class="labels" lwc:ref="labels" lwc:dom="manual"></div>
+      <div class="sceneui">
+        <button aria-pressed={pressedFollow} onclick={toggleFollow}>
+          Camera follows the action
+        </button>
+        <button aria-pressed={pressedXray} onclick={toggleXray}>X-ray</button>
+        <button onclick={handleOverview}>Overview</button>
+      </div>
+      <span class="scenehint"
+        >drag to turn · scroll to zoom · click a person to chat</span
+      >
+      <template lwc:if={noGl}>
+        <p class="nogl">
+          This browser can't show the 3D dig site.<br />The evidence board and
+          case file below tell the same story.
+        </p>
+      </template>
+    </div>
+
+    <div class="hint">
+      <span class="cta">Click any crew member to ask what they've found.</span>
+      <span class="key"
+        ><b>Blue outlines</b> = automations still buried · <b>Digging</b> =
+        reading metadata · <b>Bucket</b> = a finding sent up · <b>Rex</b> =
+        double-checks</span
+      >
+      <span class="spacer"></span>
+      <span
+        class="prog"
+        role="progressbar"
+        aria-label="Investigation progress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={progressPct}
+        ><i style={progressStyle}></i
+      ></span>
+    </div>
+
+    <div class="grid" data-check="findings" data-status={findingsStatus}>
+      <c-xray-board
+        cards={cards}
+        corrected={corrected}
+        grouped={big}
+        onask={handleCardAsk}
+      ></c-xray-board>
+      <c-xray-case-file
+        questions={questions}
+        theory={theory}
+        confidence={confidence}
+        oncrewchat={handleCrewChat}
+      ></c-xray-case-file>
+    </div>
+
+    <c-xray-process
+      visible={resultsVisible}
+      audience={role}
+      new-here={newHere}
+      found={foundIds}
+    ></c-xray-process>
+  </div>
+
+  <c-xray-chat
+    lwc:ref="chat"
+    agent={chatAgent}
+    found={foundIds}
+    activity={chatActivity}
+    confidence={confidence}
+    latest={latest}
+    default-style={style}
+    onclose={handleChatClose}
+  ></c-xray-chat>
+</template>

@@ -1,0 +1,150 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+.panel {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.ph {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.t {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.qs {
+  list-style: none;
+  margin: 0;
+  padding: 6px 6px 10px;
+}
+.q {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 4px;
+  font-size: 13.5px;
+  transition: background 0.3s;
+}
+.i {
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: center;
+  padding-top: 1px;
+  color: var(--ink-3);
+}
+.q small {
+  display: block;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.q.dig {
+  background: rgba(255, 216, 77, 0.09);
+}
+.q.dig .i {
+  color: var(--hi);
+}
+.q.done .i {
+  color: var(--ok);
+}
+.q.fixed .i {
+  color: var(--red);
+}
+.q.open {
+  opacity: 0.6;
+}
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.hyp {
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+}
+.hyp p {
+  margin: 4px 0 10px;
+  font-family: var(--display);
+  font-size: 16px;
+  line-height: 1.35;
+}
+.meter {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(173, 205, 255, 0.14);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bar i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  transition: width 0.6s var(--ease);
+}
+.crew {
+  display: grid;
+  gap: 4px;
+  padding: 10px 8px;
+  border-top: 1px solid var(--line);
+}
+.crew button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 6px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.crew button:hover {
+  background: rgba(173, 205, 255, 0.07);
+}
+.crew button:focus-visible {
+  outline: 2px solid var(--hi);
+}
+.av {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-weight: 700;
+  color: #fff;
+  font-size: 13px;
+}
+.who b {
+  font-size: 13px;
+}
+.who small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.go {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--cy);
+}

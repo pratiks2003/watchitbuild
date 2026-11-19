@@ -71,7 +71,7 @@ jobs:
           CHROME_PATH: google-chrome
         run: |
           for attempt in 1 2 3 4 5 6; do
-            if node scripts/smoke/guest-smoke.mjs "$SITE_URL" smoke.png 45000; then exit 0; fi
+            if node scripts/smoke/guest-smoke.mjs "$SITE_URL" smoke.png 45000 --interact; then exit 0; fi
             echo "Attempt $attempt failed, the site may still be publishing. Retrying in 30s."
             sleep 30
           done

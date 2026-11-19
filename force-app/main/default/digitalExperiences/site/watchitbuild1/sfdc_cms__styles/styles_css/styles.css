@@ -1,15 +1,7 @@
-/*
- * Your global styles here
- */
+/* Org X-Ray: the app paints its own background; keep the page dark behind it. */
 html,
 body {
-    height: 100%;
-}
-
-html {
-    background: white;
-}
-
-body {
-    margin: 0;
+  margin: 0;
+  background: #0a2040;
+  color-scheme: dark;
 }
