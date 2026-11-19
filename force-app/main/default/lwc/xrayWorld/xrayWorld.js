@@ -6,6 +6,9 @@ export const SURF = 0.25; // walking height on the grass
 export const ZT = 4.65; // tunnel walking depth: front slice, so diggers stay visible from the 30° camera
 export const SX = -7.5; // shaft column x
 export const ZF = 0.4; // flag row z
+export const BUCKET_Z = 5.45; // bucket hangs just outside the cliff face
+export const BUCKET_REST = SURF + 0.9; // bucket height when parked at the top
+export const PIP_FETCH = [SX + 1.6, SURF, 4.75]; // where Pip collects the card
 
 const COLS = 24;
 const ROWS = 10;
@@ -89,7 +92,7 @@ const CREW = {
   },
   rex: {
     x: 5.0,
-    z: 2.7,
+    z: 1.5,
     face: -1,
     skin: "#e0b08c",
     shirt: "#5b6b7a",
@@ -311,47 +314,50 @@ export class XrayWorld {
     [
       [-4, -1.5],
       [1, -2.8],
-      [4.5, 3.6],
-      [-2.5, 1.2]
+      [2.8, -0.6],
+      [-3.6, -3.2]
     ].forEach(([x, z]) =>
       this.box(0.45, 0.3, 0.4, "#9aa3ad", x, SURF + 0.15, z)
     );
-    // ladder
-    this.box(0.08, 10.2, 0.08, "#a07a4a", SX - 0.32, -4.95, 3.12);
-    this.box(0.08, 10.2, 0.08, "#a07a4a", SX + 0.32, -4.95, 3.12);
+    // ladder: just behind where Ada climbs (she climbs at z = ZT)
+    const ladderZ = ZT - 0.38;
+    this.box(0.08, 10.2, 0.08, "#a07a4a", SX - 0.32, -4.95, ladderZ);
+    this.box(0.08, 10.2, 0.08, "#a07a4a", SX + 0.32, -4.95, ladderZ);
     for (let y = -9.8; y < 0.2; y += 0.5) {
-      this.box(0.64, 0.06, 0.06, "#a07a4a", SX, y, 3.12);
+      this.box(0.64, 0.06, 0.06, "#a07a4a", SX, y, ladderZ);
     }
-    // pulley, rope, bucket
-    this.box(0.12, 1.9, 0.12, "#6b4a2b", SX - 0.62, SURF + 0.95, 4.5);
-    this.box(0.12, 1.9, 0.12, "#6b4a2b", SX + 0.62, SURF + 0.95, 4.5);
-    this.box(1.5, 0.14, 0.14, "#6b4a2b", SX, SURF + 1.9, 4.5);
+    // crane over the cliff edge: the bucket travels down the OUTSIDE of the face,
+    // so it is always visible and never collides with Ada in the shaft
+    this.box(0.14, 2.1, 0.14, "#6b4a2b", SX + 0.75, SURF + 1.05, 4.35);
+    this.box(0.14, 0.14, 1.35, "#6b4a2b", SX + 0.75, SURF + 2.05, 4.95);
+    this.box(0.1, 0.5, 0.1, "#6b4a2b", SX + 0.75, SURF + 1.75, 4.55);
     const wheel = new T.Mesh(
-      new T.CylinderGeometry(0.18, 0.18, 0.08, 12),
+      new T.CylinderGeometry(0.16, 0.16, 0.08, 12),
       this.mat("#3a2a1c")
     );
-    wheel.rotation.x = Math.PI / 2;
-    wheel.position.set(SX + 0.35, SURF + 1.78, 4.5);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(SX + 0.75, SURF + 1.9, BUCKET_Z);
     this.scene.add(wheel);
-    this.rope = this.box(0.03, 1, 0.03, "#d9c39a", SX + 0.48, 0, 4.5);
+    this.rope = this.box(0.03, 1, 0.03, "#d9c39a", SX + 0.75, 0, BUCKET_Z);
     this.bucket = new T.Group();
     const pail = new T.Mesh(
-      new T.CylinderGeometry(0.22, 0.16, 0.3, 10),
+      new T.CylinderGeometry(0.34, 0.25, 0.46, 12),
       this.mat("#7a5634")
     );
     pail.castShadow = true;
     this.bucket.add(pail);
     this.bucketCard = this.box(
-      0.05,
-      0.22,
-      0.3,
+      0.06,
+      0.4,
+      0.5,
       "#fbf6ea",
       0,
-      0.22,
+      0.38,
       0,
-      this.bucket
+      this.bucket,
+      { emissive: "#ffd84d", emissiveIntensity: 0.35 }
     );
-    this.bucket.position.set(SX + 0.48, SURF + 0.6, 4.5);
+    this.bucket.position.set(SX + 0.75, BUCKET_REST, BUCKET_Z);
     this.scene.add(this.bucket);
     // tent
     const tent = new T.Mesh(
@@ -723,7 +729,7 @@ export class XrayWorld {
       this.labels[`flag_${i}`].hidden = true;
     });
     while (this.mini.children.length) this.mini.remove(this.mini.children[0]);
-    this.bucket.position.y = SURF + 0.6;
+    this.bucket.position.y = BUCKET_REST;
     this.bucketCard.visible = false;
     Object.values(this.chars).forEach((c) => {
       Object.assign(c, {
@@ -1016,7 +1022,7 @@ export class XrayWorld {
       a.mesh.material.emissiveIntensity = 0.35 + Math.sin(t * 3) * 0.15;
       a.mesh.rotation.y += dt * 0.8;
     });
-    const top = SURF + 1.75;
+    const top = SURF + 1.85;
     const by = this.bucket.position.y + 0.15;
     this.rope.scale.y = Math.max(0.01, top - by);
     this.rope.position.y = (top + by) / 2;
