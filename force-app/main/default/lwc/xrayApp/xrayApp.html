@@ -35,7 +35,12 @@
         </button>
       </div>
       <div class="ctl">
-        <button class="btn primary" onclick={handlePlay}>{playLabel}</button>
+        <button class="btn primary" onclick={handleReplay}>
+          {replayLabel}
+        </button>
+        <template lwc:if={liveAvailable}>
+          <button class="btn live" onclick={handleLive}>{liveLabel}</button>
+        </template>
         <button class="btn" aria-pressed={pressedFast} onclick={toggleSpeed}>
           {speedLabel}
         </button>
@@ -50,16 +55,19 @@
         </template>
       </ol>
       <p class="now">
-        <span class="for">{explainingFor}</span>
+        <span class="for">{explainingFor} · {modeText}</span>
         <template for:each={captionSegments} for:item="s">
           <b key={s.key} lwc:if={s.bold}>{s.text}</b>
           <code key={s.key} lwc:elseif={s.code}>{s.text}</code>
           <span key={s.key} lwc:else>{s.text}</span>
         </template>
+        <template lwc:if={liveNote}>
+          <span class="livenote">{liveNote}</span>
+        </template>
       </p>
       <p class="counter">
         <b>{readCount}</b> of {readTotal} components read<br />
-        {lookups} lookups · 0 records copied
+        {stepsPlayed} crew steps · 0 records copied
       </p>
     </section>
 
@@ -109,8 +117,7 @@
 
     <div class="grid" data-check="findings" data-status={findingsStatus}>
       <c-xray-board
-        cards={cards}
-        corrected={corrected}
+        findings={findings}
         grouped={big}
         onask={handleCardAsk}
       ></c-xray-board>
@@ -126,17 +133,18 @@
       visible={resultsVisible}
       audience={role}
       new-here={newHere}
-      found={foundIds}
+      summary={summary}
     ></c-xray-process>
   </div>
 
   <c-xray-chat
     lwc:ref="chat"
     agent={chatAgent}
-    found={foundIds}
+    findings={findings}
+    summary={summary}
+    challenges={challenges}
     activity={chatActivity}
     confidence={confidence}
-    latest={latest}
     default-style={style}
     onclose={handleChatClose}
   ></c-xray-chat>

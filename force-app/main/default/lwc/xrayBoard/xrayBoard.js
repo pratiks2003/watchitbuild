@@ -1,14 +1,20 @@
 import { LightningElement, api } from "lwc";
-import { CARDS, GROUPS, STRINGS, AGENTS } from "c/xrayDemoData";
+import { GROUPS, AGENTS } from "c/xrayDemoData";
 
 const SVG = "http://www.w3.org/2000/svg";
+const COLS = 3;
+const ROW_PX = 196;
+const COL_X = [2, 36, 70];
+const TILT = [-2, 1.5, -1, 1, -1.5, 2, -2, 1.5, -1];
+const GROUP_LABEL = Object.fromEntries(GROUPS.map((g) => [g.id, g.label]));
 
-/** The cork evidence board. Pinned layout for small orgs, grouped by business stage for big ones. */
+/**
+ * The cork evidence board. Pinned layout (with red string following the crew's trail)
+ * for normal orgs; grouped by business stage for big ones.
+ */
 export default class XrayBoard extends LightningElement {
-  /** @type {{id: string, instant: boolean}[]} */
-  @api cards = [];
-  /** @type {string[]} ids of findings later proven wrong */
-  @api corrected = [];
+  /** @type {{finding: object, agent: string, instant: boolean}[]} in discovery order */
+  @api findings = [];
   @api grouped = false;
 
   filter = "";
@@ -32,25 +38,30 @@ export default class XrayBoard extends LightningElement {
 
   get views() {
     const q = this.filter.trim().toLowerCase();
-    return this.cards.map(({ id, instant }) => {
-      const c = CARDS[id];
-      const wrong = this.corrected.includes(id);
-      const status = wrong ? "corrected" : c.status;
+    return this.findings.map(({ finding: f, agent, instant }, i) => {
       const hidden =
         Boolean(q) &&
-        !`${c.type} ${c.title} ${c.evidence}`.toLowerCase().includes(q);
+        !`${f.title} ${f.evidence} ${f.source} ${f.plain}`
+          .toLowerCase()
+          .includes(q);
+      const who = AGENTS[agent]?.name ?? "the crew";
       return {
-        id,
-        group: c.group,
-        type: c.type,
-        title: c.title,
-        evidence: c.evidence,
-        ask: `ask ${AGENTS[c.by].name} →`,
-        status: status.toUpperCase(),
-        statusCls: `st ${status}`,
-        cls: `card${wrong ? " wrong" : ""}${instant ? "" : " pin"}${hidden ? " hide" : ""}`,
-        style: this.grouped ? "" : `left:${c.x}%;top:${c.y}%;--r:${c.r}deg`,
-        label: `${c.title}. ${c.evidence}. ${status}. Ask ${AGENTS[c.by].name} about it.`
+        id: f.id,
+        group: GROUP_LABEL[f.group] ? f.group : "other",
+        type: `${(GROUP_LABEL[f.group] ?? "Other").toUpperCase()} · ${who.toUpperCase()}`,
+        title: f.title,
+        evidence: f.evidence,
+        source: f.source,
+        hasSource: Boolean(f.source),
+        ask: `ask ${who} →`,
+        status: f.confidence.toUpperCase(),
+        statusCls: `st ${f.confidence}`,
+        cls: `card${instant ? "" : " pin"}${hidden ? " hide" : ""}`,
+        style: this.grouped
+          ? ""
+          : `left:${COL_X[i % COLS]}%;top:${12 + Math.floor(i / COLS) * ROW_PX}px;--r:${TILT[i % TILT.length]}deg`,
+        label: `${f.title}. ${f.evidence}. ${f.confidence}. Ask ${who} about it.`,
+        agent
       };
     });
   }
@@ -59,21 +70,23 @@ export default class XrayBoard extends LightningElement {
     const views = this.views;
     return GROUPS.map((g) => {
       const cards = views.filter((v) => v.group === g.id);
-      return {
-        ...g,
-        cards,
-        count: cards.length,
-        moreText: `+ ${g.more} more findings`
-      };
-    });
+      return { ...g, cards, count: cards.length };
+    }).filter((c) => c.count > 0);
   }
 
   get boardCls() {
-    return `board${this.grouped ? " grouped" : ""}${this.cards.length ? " has" : ""}`;
+    return `board${this.grouped ? " grouped" : ""}${this.findings.length ? " has" : ""}`;
+  }
+
+  get boardStyle() {
+    if (this.grouped) return "";
+    const rows = Math.max(3, Math.ceil(this.findings.length / COLS));
+    return `height:${rows * ROW_PX + 24}px`;
   }
 
   get countText() {
-    return `${this.cards.length} ${this.cards.length === 1 ? "card" : "cards"}`;
+    const n = this.findings.length;
+    return `${n} ${n === 1 ? "card" : "cards"}`;
   }
 
   handleFilter(event) {
@@ -82,8 +95,16 @@ export default class XrayBoard extends LightningElement {
 
   handleAsk(event) {
     const id = event.currentTarget.dataset.id;
+    const entry = this.findings.find((e) => e.finding.id === id);
+    if (!entry) return;
     this.dispatchEvent(
-      new CustomEvent("ask", { detail: { agent: CARDS[id].by, cardId: id } })
+      new CustomEvent("ask", {
+        detail: {
+          agent: entry.agent,
+          findingId: id,
+          title: entry.finding.title
+        }
+      })
     );
   }
 
@@ -94,12 +115,13 @@ export default class XrayBoard extends LightningElement {
     }
   }
 
-  /** Red string between related cards, measured after layout. Hidden when grouped or on phones. */
+  /** Red string between consecutive findings: the trail the crew followed. Hidden when grouped or on phones. */
   drawStrings() {
     const host = this.refs.strings;
     const board = this.refs.board;
     if (!host || !board) return;
     host.textContent = "";
+    if (!this.findings.length) this._drawn.clear();
     if (this.grouped || window.matchMedia?.("(max-width: 760px)").matches)
       return;
     const box = board.getBoundingClientRect();
@@ -112,23 +134,24 @@ export default class XrayBoard extends LightningElement {
       const r = el.getBoundingClientRect();
       return [r.left + r.width / 2 - box.left, r.top + 2 - box.top];
     };
-    STRINGS.forEach(([a, b]) => {
-      const pa = pinOf(a);
-      const pb = pinOf(b);
-      if (!pa || !pb) return;
-      const line = document.createElementNS(SVG, "line");
-      line.setAttribute("x1", pa[0]);
-      line.setAttribute("y1", pa[1]);
-      line.setAttribute("x2", pb[0]);
-      line.setAttribute("y2", pb[1]);
-      const key = `${a}-${b}`;
-      if (!this._drawn.has(key)) {
-        line.setAttribute("class", "new");
-        this._drawn.add(key);
+    const ids = this.findings.map((e) => e.finding.id);
+    for (let i = 1; i < ids.length; i++) {
+      const pa = pinOf(ids[i - 1]);
+      const pb = pinOf(ids[i]);
+      if (pa && pb) {
+        const line = document.createElementNS(SVG, "line");
+        line.setAttribute("x1", pa[0]);
+        line.setAttribute("y1", pa[1]);
+        line.setAttribute("x2", pb[0]);
+        line.setAttribute("y2", pb[1]);
+        const key = `${ids[i - 1]}-${ids[i]}`;
+        if (!this._drawn.has(key)) {
+          line.setAttribute("class", "new");
+          this._drawn.add(key);
+        }
+        svg.appendChild(line);
       }
-      svg.appendChild(line);
-    });
+    }
     host.appendChild(svg);
-    if (!this.cards.length) this._drawn.clear();
   }
 }

@@ -13,7 +13,7 @@
         oninput={handleFilter}
       />
     </div>
-    <div class={boardCls} lwc:ref="board">
+    <div class={boardCls} style={boardStyle} lwc:ref="board">
       <div class="strings" lwc:ref="strings" lwc:dom="manual"></div>
       <p class="empty">
         Findings get pinned here as Pip brings them up.<br />Each card shows its
@@ -41,15 +41,15 @@
                   <div class="ty">{c.type}</div>
                   <div class="ti">{c.title}</div>
                   <div class="ev">{c.evidence}</div>
+                  <template lwc:if={c.hasSource}
+                    ><div class="src">{c.source}</div></template
+                  >
                   <div class="ft">
                     <span class="ask">{c.ask}</span
                     ><span class={c.statusCls}>{c.status}</span>
                   </div>
                 </div>
               </template>
-              <div class="stub">
-                {col.moreText}<br />open the group to see all
-              </div>
             </div>
           </template>
         </div>
@@ -70,6 +70,9 @@
             <div class="ty">{c.type}</div>
             <div class="ti">{c.title}</div>
             <div class="ev">{c.evidence}</div>
+            <template lwc:if={c.hasSource}
+              ><div class="src">{c.source}</div></template
+            >
             <div class="ft">
               <span class="ask">{c.ask}</span
               ><span class={c.statusCls}>{c.status}</span>

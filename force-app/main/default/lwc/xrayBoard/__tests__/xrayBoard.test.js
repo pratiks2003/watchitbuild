@@ -6,95 +6,107 @@ global.ResizeObserver = class {
   disconnect() {}
 };
 
+const entry = (id, group, confidence, agent = "ada") => ({
+  finding: {
+    id,
+    title: `Title ${id}`,
+    evidence: `Evidence ${id}`,
+    source: `Source ${id}`,
+    plain: `Plain ${id}`,
+    group,
+    confidence
+  },
+  agent,
+  instant: true
+});
+
 const mount = (props) => {
   const el = createElement("c-xray-board", { is: XrayBoard });
   Object.assign(el, props);
   document.body.appendChild(el);
   return el;
 };
-const cards = (el) => [...el.shadowRoot.querySelectorAll(".card")];
 
 describe("c-xray-board", () => {
   afterEach(() => {
-    while (document.body.firstChild) {
+    while (document.body.firstChild)
       document.body.removeChild(document.body.firstChild);
-    }
   });
 
-  it("shows the empty state with no cards", () => {
-    const el = mount({ cards: [] });
-    expect(cards(el)).toHaveLength(0);
+  it("shows the empty state with no findings", () => {
+    const el = mount({ findings: [] });
+    expect(el.shadowRoot.querySelectorAll(".card")).toHaveLength(0);
     expect(
       el.shadowRoot.querySelector(".board").classList.contains("has")
     ).toBe(false);
   });
 
-  it("renders a card per finding with its status", () => {
+  it("renders each finding with its confidence, source and who found it", () => {
     const el = mount({
-      cards: [
-        { id: "objects", instant: true },
-        { id: "erp", instant: true }
+      findings: [
+        entry("a", "sell", "confirmed", "theo"),
+        entry("b", "bill", "likely")
       ]
     });
-    expect(cards(el)).toHaveLength(2);
-    expect(el.shadowRoot.querySelector('[data-id="erp"] .st').textContent).toBe(
-      "LIKELY"
+    const card = el.shadowRoot.querySelector('[data-id="b"]');
+    expect(card.querySelector(".st").textContent).toBe("LIKELY");
+    expect(card.querySelector(".src").textContent).toBe("Source b");
+    expect(el.shadowRoot.querySelector('[data-id="a"] .ty').textContent).toBe(
+      "SELL · THEO"
     );
   });
 
-  it("marks corrected findings", () => {
+  it("grows taller when there are more findings", () => {
     const el = mount({
-      cards: [{ id: "refundGuess", instant: true }],
-      corrected: ["refundGuess"]
+      findings: Array.from({ length: 12 }, (_, i) =>
+        entry(`f${i}`, "other", "confirmed")
+      )
     });
-    const card = el.shadowRoot.querySelector('[data-id="refundGuess"]');
-    expect(card.classList.contains("wrong")).toBe(true);
-    expect(card.querySelector(".st").textContent).toBe("CORRECTED");
+    expect(
+      el.shadowRoot.querySelector(".board").getAttribute("style")
+    ).toContain("height:808px");
   });
 
   it("filters cards by text", async () => {
     const el = mount({
-      cards: [
-        { id: "objects", instant: true },
-        { id: "erp", instant: true }
-      ]
+      findings: [entry("a", "sell", "confirmed"), entry("b", "bill", "likely")]
     });
     const input = el.shadowRoot.querySelector("input");
-    input.value = "nightly";
+    input.value = "evidence b";
     input.dispatchEvent(new CustomEvent("input"));
     await Promise.resolve();
     expect(
-      el.shadowRoot
-        .querySelector('[data-id="objects"]')
-        .classList.contains("hide")
+      el.shadowRoot.querySelector('[data-id="a"]').classList.contains("hide")
     ).toBe(true);
     expect(
-      el.shadowRoot.querySelector('[data-id="erp"]').classList.contains("hide")
+      el.shadowRoot.querySelector('[data-id="b"]').classList.contains("hide")
     ).toBe(false);
   });
 
-  it("asks the agent who found a card when it is clicked", () => {
-    const el = mount({ cards: [{ id: "ship", instant: true }] });
+  it("asks the crew member who found a card", () => {
+    const el = mount({ findings: [entry("a", "sell", "confirmed", "noor")] });
     const handler = jest.fn();
     el.addEventListener("ask", handler);
-    el.shadowRoot.querySelector('[data-id="ship"]').click();
+    el.shadowRoot.querySelector('[data-id="a"]').click();
     expect(handler.mock.calls[0][0].detail).toEqual({
-      agent: "ada",
-      cardId: "ship"
+      agent: "noor",
+      findingId: "a",
+      title: "Title a"
     });
   });
 
-  it("groups cards into business stages for big orgs", () => {
+  it("groups by business stage, showing only stages with findings", () => {
     const el = mount({
-      cards: [
-        { id: "objects", instant: true },
-        { id: "ship", instant: true }
+      findings: [
+        entry("a", "sell", "confirmed"),
+        entry("b", "bill", "likely"),
+        entry("c", "mystery", "guess")
       ],
       grouped: true
     });
-    const cols = el.shadowRoot.querySelectorAll(".col");
-    expect(cols).toHaveLength(5);
-    expect(cols[0].querySelectorAll(".card")).toHaveLength(1);
-    expect(cols[2].querySelectorAll(".card")).toHaveLength(1);
+    const heads = [
+      ...el.shadowRoot.querySelectorAll(".colh span:first-child")
+    ].map((s) => s.textContent);
+    expect(heads).toEqual(["Sell", "Bill", "Other"]);
   });
 });

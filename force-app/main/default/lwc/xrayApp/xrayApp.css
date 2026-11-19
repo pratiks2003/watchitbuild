@@ -218,6 +218,17 @@ button {
   color: var(--ink-3);
   margin-bottom: 2px;
 }
+.livenote {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--cy);
+}
+.btn.live {
+  border-color: var(--cy);
+  color: var(--cy);
+}
 .counter {
   margin: 0;
   font-family: var(--mono);

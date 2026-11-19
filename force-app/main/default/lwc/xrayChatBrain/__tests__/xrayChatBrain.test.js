@@ -1,69 +1,95 @@
-import { reply, storyText, greeting } from "c/xrayChatBrain";
+import { reply, storyText, greeting, bestFinding } from "c/xrayChatBrain";
 
-const ctx = (ids, style = "plain") => ({
-  found: new Set(ids),
-  style,
-  activity: "Digging in 2021",
-  confidence: 48,
-  latest: ids[ids.length - 1] ?? null
+const F = (id, title, confidence, plain, evidence, source) => ({
+  finding: { id, title, confidence, plain, evidence, source, group: "other" },
+  agent: "ada"
+});
+const billing = F(
+  "erp_bills",
+  "Invoices come from the ERP",
+  "likely",
+  "The bill comes from a separate accounting system overnight.",
+  "ErpSyncBatch upserts Invoice__c nightly",
+  "ErpSyncBatch, ERP"
+);
+const stages = F(
+  "stages",
+  "Deals move through five stages",
+  "confirmed",
+  "A salesperson takes each deal through five steps.",
+  "Opportunity.StageName has five values",
+  "Opportunity.StageName"
+);
+const ctx = (findings, extra = {}) => ({
+  findings,
+  summary: null,
+  challenges: [],
+  style: "plain",
+  activity: "Reading ErpSyncBatch",
+  confidence: 60,
+  ...extra
 });
 
 describe("c/xrayChatBrain", () => {
-  it("refuses to answer about something not found yet", () => {
-    const r = reply("ada", "Who sends the invoice?", ctx(["objects"]));
-    expect(r.text).toContain("haven't dug there yet");
-    expect(r.text).toContain("Who sends the invoice?");
-  });
-
-  it("answers in plain words without Salesforce terms once found", () => {
-    const r = reply("ada", "Who sends the invoice?", ctx(["objects", "erp"]));
+  it("answers from the best-matching finding, in plain words", () => {
+    const r = reply("ada", "Who sends the invoice?", ctx([stages, billing]));
     expect(r.text).toContain("accounting system");
     expect(r.text).not.toContain("Invoice__c");
-    expect(r.source).toContain("ErpSyncBatch");
+    expect(r.source).toBe("ErpSyncBatch, ERP");
   });
 
-  it("answers with technical names in technical style", () => {
+  it("uses technical evidence in technical style", () => {
     const r = reply(
       "ada",
       "Who sends the invoice?",
-      ctx(["objects", "erp"], "tech")
+      ctx([billing], { style: "tech" })
     );
-    expect(r.text).toContain("ErpSyncBatch");
-    expect(r.text).toContain("Invoice__c");
+    expect(r.text).toContain("ErpSyncBatch upserts Invoice__c");
   });
 
-  it("has Rex flag likely findings as unproven", () => {
-    const r = reply("rex", "Tell me about the invoice", ctx(["erp"], "tech"));
-    expect(r.text.startsWith("Only likely, not proven.")).toBe(true);
-  });
-
-  it("tells the story only from findings, and names the gaps", () => {
-    const text = storyText(new Set(["objects", "stages"]));
-    expect(text).toContain("outdoor gear");
-    expect(text).toContain("still digging");
-    expect(text).toContain("who sends the bill");
-  });
-
-  it("reports the current activity when asked", () => {
-    expect(reply("ada", "What are you digging now?", ctx([])).text).toBe(
-      "Digging in 2021."
-    );
-  });
-
-  it("explains the correction only after it happened", () => {
+  it("has Rex flag likely findings", () => {
     expect(
-      reply("rex", "What did the crew get wrong?", ctx(["refundGuess"])).text
-    ).toContain("Nothing proven wrong yet");
+      reply("rex", "Tell me about the invoice", ctx([billing])).text.startsWith(
+        "Only likely"
+      )
+    ).toBe(true);
+  });
+
+  it("never invents: no match means it says what it has", () => {
+    const r = reply("ada", "What about payroll?", ctx([stages]));
+    expect(r.text).toContain("only answer from what we've found");
+    expect(reply("ada", "What about payroll?", ctx([])).text).toContain(
+      "haven't found anything"
+    );
+  });
+
+  it("tells the story from Ada's summary when the run finished", () => {
+    expect(
+      storyText([stages], {
+        story: ["They sell tents.", "Deals have five steps."]
+      })
+    ).toBe("They sell tents. Deals have five steps.");
+    expect(storyText([stages], null)).toContain("still digging");
+  });
+
+  it("reports Rex's challenges and confidence", () => {
     expect(
       reply(
         "rex",
-        "What did the crew get wrong?",
-        ctx(["refundGuess", "refund"])
+        "What did you challenge?",
+        ctx([billing], { challenges: ["We never saw the ERP."] })
       ).text
-    ).toContain("Support Lead");
+    ).toContain("We never saw the ERP.");
+    expect(
+      reply("rex", "How sure are you?", ctx([billing, stages])).text
+    ).toContain("1 findings are confirmed, 1 likely");
   });
 
-  it("greets with the live count", () => {
-    expect(greeting("ada", 3)).toContain("3 findings");
+  it("matches on shared words", () => {
+    expect(
+      bestFinding("which stages do deals move through", [billing, stages])
+        .finding.id
+    ).toBe("stages");
+    expect(greeting("pip", 4)).toContain("4 cards");
   });
 });

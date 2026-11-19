@@ -2,29 +2,23 @@ import { LightningElement } from "lwc";
 import { loadScript } from "lightning/platformResourceLoader";
 import THREE_URL from "@salesforce/resourceUrl/three";
 import { XrayWorld } from "c/xrayWorld";
-import { XrayDirector } from "c/xrayDirector";
-import { QUESTIONS, ROLES, AGENTS, CARDS } from "c/xrayDemoData";
+import { XrayPlayer } from "c/xrayPlayer";
+import { AgentLoop, QUESTIONS } from "c/xrayAgentLoop";
+import { buildLayout } from "c/xrayLayout";
+import { DEMO_ORG } from "c/xrayDemoOrg";
+import { DEMO_RUN } from "c/xrayDemoRun";
+import { ROLES, AGENTS } from "c/xrayDemoData";
 import { toSegments } from "c/xrayText";
-import { getConfig } from "c/xrayApi";
+import { getConfig, agentStep, summarize, messageOf } from "c/xrayApi";
 
 const PHASES = ["Survey", "Dig", "Verify", "Map"];
-const TOTAL = { demo: 2140, big: 18640 };
-const LOOKUPS = { demo: 41, big: 118 };
-const ASK_FOR_CARD = {
-  objects: "What does this business sell?",
-  stages: "What are the sales stages?",
-  discount: "Who approves discounts?",
-  refundGuess: "Who approves refunds?",
-  refund: "Who approves refunds?",
-  handoff: "What happens after a deal is won?",
-  ship: "Who ships the order?",
-  erp: "Who sends the invoice?",
-  drop: "Where do deals get stuck?"
-};
+const freshQuestions = () =>
+  QUESTIONS.map((q) => ({ ...q, status: "open", answer: "" }));
 
 /**
  * Org X-Ray shell: the 3D dig site, the live strip, and the panels around it.
- * Owns all investigation state; children receive it as read-only properties.
+ * Everything shown comes from a real investigation: a recorded run of the demo org,
+ * or a live run in this browser. Owns all state; children receive it read-only.
  */
 export default class XrayApp extends LightningElement {
   role = "dev";
@@ -36,23 +30,27 @@ export default class XrayApp extends LightningElement {
   noGl = false;
   sceneStatus = "loading";
   liveConfig = null;
+  mode = "replay"; // replay | live
+  liveNote = "";
 
   phaseIndex = 0;
   caption = { plain: "Loading the dig site…", tech: "Loading the dig site…" };
   activity = {};
-  questions = QUESTIONS.map((q) => ({ ...q, status: "open" }));
+  questions = freshQuestions();
   theory = "";
   confidence = 0;
   progress = 0;
-  cards = [];
-  corrected = [];
-  latest = null;
+  stepsPlayed = 0;
+  findings = []; // [{ finding, agent, instant }] in discovery order
+  challenges = [];
+  summary = null;
   resultsVisible = false;
   chatAgent = null;
   running = false;
 
   _booted = false;
   _reduceMotion = false;
+  _run = null;
 
   /* ---------- lifecycle ---------- */
 
@@ -66,106 +64,164 @@ export default class XrayApp extends LightningElement {
 
   disconnectedCallback() {
     clearTimeout(this._autoplay);
-    this.director?.stop();
+    this._loop?.stop();
+    this.player?.stop();
     this.world?.destroy();
   }
 
   async boot() {
-    // Live AI availability (kill switch). The recorded demo works either way.
+    this.index = DEMO_ORG;
+    this.layout = buildLayout(this.index);
     getConfig().then((config) => {
       this.liveConfig = config;
     });
+    const runPromise = this.loadRun();
     try {
       await loadScript(this, THREE_URL);
       this.world = new XrayWorld({
         THREE: window.THREE,
         host: this.refs.scene,
         labels: this.refs.labels,
+        layout: this.layout,
         reduceMotion: this._reduceMotion,
         onAgentClick: (k) => this.openChat(k)
       });
       this.world.start();
       // "ok" only if the 3D canvas exactly covers the panel, so labels line up with objects.
       this.sceneStatus = this.world.fitsHost() ? "ok" : "failed";
+      this.player = new XrayPlayer({ world: this.world, ui: this.uiHooks() });
     } catch {
       // No WebGL (or the library failed): the panels still tell the whole story.
       this.noGl = true;
       this.sceneStatus = "failed";
       this.world = null;
     }
-    this.director = this.world
-      ? new XrayDirector({ world: this.world, ui: this.uiHooks() })
-      : null;
-    await this.playFinished();
-    if (!this._reduceMotion && this.director && !this._userTookControl) {
-      // Let visitors see the finished sheet for a moment, then play the dig,
-      // unless they already pressed a playback control.
+    this._run = await runPromise;
+    await this.showFinished();
+    if (
+      !this._reduceMotion &&
+      this.player &&
+      this._run &&
+      !this._userTookControl
+    ) {
+      // Show the finished sheet for a moment, then replay the dig, unless the visitor took over.
       // eslint-disable-next-line @lwc/lwc/no-async-operation
-      this._autoplay = setTimeout(() => this.play(), 1800);
+      this._autoplay = setTimeout(() => this.replay(), 1800);
     }
   }
 
-  /** Builds the finished investigation instantly (also the no-3D and reduced-motion path). */
-  async playFinished() {
-    if (this.director) {
-      await this.director.run({ instant: true });
-    } else {
-      const ui = this.uiHooks();
-      ui.reset();
-      Object.keys(CARDS).forEach((id) => ui.addCard(id, true));
-      ui.correct("refundGuess");
-      this.questions = this.questions.map((q) => ({
-        ...q,
-        status: q.id === "q6" ? "fixed" : "done"
-      }));
-      ui.theory(
-        "Quote-to-cash: approvals in Salesforce, invoicing in the accounting system. 9 steps across 6 teams.",
-        88
-      );
-      ui.phase(4);
-      ui.progress(1);
-      ui.caption({
-        plain: "**Done.** Here is what the crew found.",
-        tech: "**Done.** 41 lookups, 0 records copied."
-      });
-      ui.done(true);
-    }
+  /** The recorded real run of the demo org (bundled as a module: fetching static resources is unreliable under LWS). */
+  async loadRun() {
+    return DEMO_RUN?.steps?.length ? DEMO_RUN : null;
   }
 
-  async play() {
-    if (!this.director) return;
+  /** The finished investigation, instantly (also the no-3D and reduced-motion path). */
+  async showFinished() {
+    if (!this._run) {
+      this.caption = {
+        plain: "The recorded dig could not be loaded. Please refresh.",
+        tech: "Recorded run unavailable."
+      };
+      return;
+    }
+    if (this.player) {
+      await this.player.replay(this._run, { instant: true });
+      return;
+    }
+    const ui = this.uiHooks();
+    ui.reset();
+    this._run.steps.forEach(({ step }) => {
+      if (step.question)
+        ui.question(
+          step.question.id,
+          step.question.status,
+          step.question.answer
+        );
+      if (step.challenge) ui.challenge(step.challenge.text);
+      if (step.finding) ui.addFinding(step.finding, step.agent, true);
+    });
+    ui.phase(4);
+    ui.progress(1);
+    ui.summary(this._run.summary);
+    ui.caption({
+      plain: "**Done.** Here is what the crew found.",
+      tech: "**Done.** Findings, process and logic map below."
+    });
+    ui.done(true);
+  }
+
+  async replay() {
+    if (!this.player || !this._run) return;
+    this._loop?.stop();
+    this.mode = "replay";
+    this.liveNote = "";
     this.running = true;
     try {
-      await this.director.run({ instant: false });
+      await this.player.replay(this._run, { instant: false });
     } finally {
       this.running = false;
     }
   }
 
-  /* ---------- hooks the director calls ---------- */
+  /** Runs the real crew in this browser against the demo org, step by step. */
+  async runLive() {
+    if (!this.player || !this.liveConfig?.enabled) return;
+    this._loop?.stop();
+    this.mode = "live";
+    this.liveNote = "Live AI crew · every step is a real model call";
+    this.running = true;
+    const my = this.player.begin({ instant: false });
+    this._loop = new AgentLoop({
+      index: this.index,
+      api: { agentStep, summarize },
+      maxSteps: this.liveConfig.maxStepsPerRun || 40,
+      onEvent: (event) => {
+        if (event.type === "error") {
+          this.liveNote = messageOf(event.error);
+        } else if (event.type !== "done") {
+          this.player.enqueue(event, my);
+        }
+      }
+    });
+    try {
+      const run = await this._loop.run();
+      await this.player.queue;
+      if (!run.summary && my === this.player.token) {
+        this.liveNote =
+          this.liveNote ||
+          "The crew stopped early. Try again, or watch the recorded dig.";
+      }
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /* ---------- hooks the player calls ---------- */
 
   uiHooks() {
     return {
       reset: () => {
-        this.cards = [];
-        this.corrected = [];
-        this.latest = null;
+        this.findings = [];
+        this.challenges = [];
+        this.summary = null;
         this.resultsVisible = false;
-        this.questions = QUESTIONS.map((q) => ({ ...q, status: "open" }));
+        this.questions = freshQuestions();
         this.activity = {};
+        this.stepsPlayed = 0;
       },
       phase: (n) => {
         this.phaseIndex = n;
       },
       caption: (c) => {
         this.caption = c;
+        this.stepsPlayed += 1;
       },
       activity: (map) => {
         this.activity = { ...this.activity, ...map };
       },
-      question: (id, status) => {
+      question: (id, status, answer) => {
         this.questions = this.questions.map((q) => {
-          return q.id === id ? { ...q, status } : q;
+          return q.id === id ? { ...q, status, answer: answer || q.answer } : q;
         });
       },
       theory: (text, confidence) => {
@@ -176,13 +232,19 @@ export default class XrayApp extends LightningElement {
         this.progress = p;
         this.world?.setSky(p);
       },
-      addCard: (id, instant) => {
-        if (this.cards.some((c) => c.id === id)) return;
-        this.cards = [...this.cards, { id, instant }];
-        this.latest = id === "refundGuess" ? this.latest : id;
+      addFinding: (finding, agent, instant) => {
+        const at = this.findings.findIndex((e) => e.finding.id === finding.id);
+        const entry = { finding, agent, instant: instant || at >= 0 };
+        this.findings =
+          at >= 0
+            ? this.findings.map((e, i) => (i === at ? entry : e))
+            : [...this.findings, entry];
       },
-      correct: (id) => {
-        this.corrected = [...this.corrected, id];
+      challenge: (text) => {
+        this.challenges = [...this.challenges, text];
+      },
+      summary: (summary) => {
+        this.summary = summary;
       },
       done: () => {
         this.resultsVisible = true;
@@ -197,12 +259,7 @@ export default class XrayApp extends LightningElement {
       label,
       key: label,
       cls:
-        i + 1 < this.phaseIndex
-          ? "done"
-          : i + 1 === this.phaseIndex
-            ? "on"
-            : "",
-      last: i === PHASES.length - 1
+        i + 1 < this.phaseIndex ? "done" : i + 1 === this.phaseIndex ? "on" : ""
     }));
   }
 
@@ -222,21 +279,21 @@ export default class XrayApp extends LightningElement {
 
   get readCount() {
     return Math.round(
-      this.progress * (this.big ? TOTAL.big : TOTAL.demo)
+      this.progress * (this.layout?.totals.components ?? 0)
     ).toLocaleString();
   }
 
   get readTotal() {
-    return (this.big ? TOTAL.big : TOTAL.demo).toLocaleString();
+    return (this.layout?.totals.components ?? 0).toLocaleString();
   }
 
-  get lookups() {
-    return Math.round(this.progress * (this.big ? LOOKUPS.big : LOOKUPS.demo));
+  get modeText() {
+    return this.mode === "live" ? "live AI run" : "replay of a real AI run";
   }
 
-  /** For the guest smoke test: ok once the finished investigation is on the page. */
+  /** For the guest smoke test: ok once a finished investigation is on the page. */
   get findingsStatus() {
-    return this.cards.length >= 9 && this.resultsVisible ? "ok" : "loading";
+    return this.findings.length >= 3 && this.resultsVisible ? "ok" : "loading";
   }
 
   get progressPct() {
@@ -255,18 +312,26 @@ export default class XrayApp extends LightningElement {
     }));
   }
 
-  get foundIds() {
-    return this.cards.map((c) => c.id);
-  }
-
   get chatActivity() {
     return this.chatAgent
       ? (this.activity[this.chatAgent] ?? "Waiting for the next job")
       : "";
   }
 
-  get playLabel() {
-    return this.running ? "↻ Restart the dig" : "▶ Start the dig";
+  get liveAvailable() {
+    return Boolean(this.liveConfig?.enabled) && !this.noGl;
+  }
+
+  get liveLabel() {
+    return this.running && this.mode === "live"
+      ? "↻ Restart live run"
+      : "✦ Run the live AI crew";
+  }
+
+  get replayLabel() {
+    return this.running && this.mode === "replay"
+      ? "↻ Restart the replay"
+      : "▶ Replay the dig";
   }
 
   get speedLabel() {
@@ -303,23 +368,11 @@ export default class XrayApp extends LightningElement {
   }
 
   setDemo() {
-    this.setSize(false);
+    this.big = false;
   }
 
   setBig() {
-    this.setSize(true);
-  }
-
-  setSize(big) {
-    this.big = big;
-    this.world?.setBig(big);
-    if (big) {
-      this.caption = {
-        plain:
-          "**Production-size org:** 18,640 components. The crew still opens only what answers a question, and the board groups findings by business stage so it stays readable.",
-        tech: "**Production-size org:** 18,640 components. Agent lookups stay capped at ~120; the board groups by process stage with overflow counts."
-      };
-    }
+    this.big = true;
   }
 
   /** Any playback control means the visitor is in charge: cancel the automatic replay. */
@@ -328,21 +381,29 @@ export default class XrayApp extends LightningElement {
     clearTimeout(this._autoplay);
   }
 
-  handlePlay() {
+  handleReplay() {
     this.takeControl();
-    this.play();
+    this.replay();
+  }
+
+  handleLive() {
+    this.takeControl();
+    this.runLive();
   }
 
   async handleSkip() {
     this.takeControl();
-    this.director?.stop();
+    this._loop?.stop();
+    this.player?.stop();
     this.running = false;
-    await this.playFinished();
+    this.mode = "replay";
+    this.liveNote = "";
+    await this.showFinished();
   }
 
   toggleSpeed() {
     this.fast = !this.fast;
-    if (this.director) this.director.speed = this.fast ? 2 : 1;
+    if (this.player) this.player.speed = this.fast ? 2 : 1;
   }
 
   toggleFollow() {
@@ -365,10 +426,10 @@ export default class XrayApp extends LightningElement {
   }
 
   handleCardAsk(event) {
-    const { agent, cardId } = event.detail;
+    const { agent, title } = event.detail;
     this.openChat(agent);
     // eslint-disable-next-line @lwc/lwc/no-async-operation
-    requestAnimationFrame(() => this.refs.chat?.ask(ASK_FOR_CARD[cardId]));
+    requestAnimationFrame(() => this.refs.chat?.ask(`Tell me about: ${title}`));
   }
 
   openChat(agent) {

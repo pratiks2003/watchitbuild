@@ -16,3 +16,4 @@ coverage/
 **/sites/**
 **/profiles/**
 package-lock.json
+force-app/main/default/lwc/xrayDemoRun/xrayDemoRun.js

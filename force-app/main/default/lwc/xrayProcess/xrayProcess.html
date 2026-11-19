@@ -6,9 +6,7 @@
   >
     <div class="ph">
       <span class="t">the business process · reconstructed</span>
-      <span class="n"
-        >9 steps · 6 teams · 7 confirmed · 1 likely · 1 outside Salesforce</span
-      >
+      <span class="n">{stats}</span>
       <span class="spacer"></span>
       <button class="btn" onclick={handlePlay}>▶ Play the process</button>
     </div>
@@ -27,13 +25,7 @@
         </h3>
         <ol>
           <template for:each={story} for:item="s">
-            <li key={s.key} class={s.cls}>
-              <span
-                >{s.text}<template lwc:if={s.likely}
-                  ><span class="tagl">likely</span></template
-                ></span
-              >
-            </li>
+            <li key={s.key}><span>{s.text}</span></li>
           </template>
         </ol>
       </div>

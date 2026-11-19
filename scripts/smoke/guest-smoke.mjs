@@ -110,14 +110,25 @@ async function runInteraction(ws) {
     ws,
     `const s = deepAll('.sugg button')[0]; if (s) s.click(); return s ? s.textContent.trim() : null;`
   );
-  await sleep(6000);
-  const answer = await evaluate(
-    ws,
-    `const m = deepAll('.m.a'); return m.length ? m[m.length - 1].textContent.replace(/\\s+/g, ' ').trim() : null;`
-  );
-  // The finished investigation must be on the board, so the story must be the real one.
+  // Wait until Ada has finished "typing" (the answer stops changing), up to 15 s.
+  let answer = null;
+  for (let i = 0, previous = ""; i < 30; i++) {
+    await sleep(500);
+    answer = await evaluate(
+      ws,
+      `const m = deepAll('.m.a'); return m.length ? m[m.length - 1].textContent.replace(/\\s+/g, ' ').trim() : null;`
+    );
+    if (answer && answer === previous && answer.length > 20) break;
+    previous = answer ?? "";
+  }
+  // The finished investigation must be on the board, so Ada must tell its real story.
   const ok = Boolean(
-    skipped && opened && asked && answer && answer.includes("outdoor gear")
+    skipped &&
+    opened &&
+    asked &&
+    answer &&
+    answer.startsWith("Here is the story") &&
+    answer.length > 120
   );
   return { ok, skipped, opened, asked, answer };
 }
@@ -134,7 +145,9 @@ try {
     } else if (
       process.env.LOG_APEX &&
       msg.method === "Network.requestWillBeSent" &&
-      /apex/i.test(msg.params.request.url)
+      new RegExp(process.env.LOG_NET ?? "apex", "i").test(
+        msg.params.request.url
+      )
     ) {
       // LOG_APEX=1 prints each Apex call the page makes (debugging guest access).
       console.error(
@@ -145,9 +158,16 @@ try {
     } else if (
       process.env.LOG_APEX &&
       msg.method === "Network.responseReceived" &&
-      /apex/i.test(msg.params.response.url)
+      new RegExp(process.env.LOG_NET ?? "apex", "i").test(
+        msg.params.response.url
+      )
     ) {
-      console.error("APEX-RESPONSE", msg.params.response.status);
+      console.error(
+        "APEX-RESPONSE",
+        msg.params.response.status,
+        msg.params.response.url.slice(0, 160),
+        msg.params.response.headers?.["content-type"] ?? ""
+      );
     } else if (msg.method === "Runtime.exceptionThrown") {
       consoleErrors.push(
         msg.params.exceptionDetails?.exception?.description ?? "exception"
