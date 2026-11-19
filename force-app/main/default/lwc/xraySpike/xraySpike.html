@@ -1,0 +1,20 @@
+<template>
+  <section class="spike">
+    <h1>orgxray · phase 0 checks</h1>
+    <div class="stage" lwc:ref="stage" lwc:dom="manual"></div>
+    <dl>
+      <div class="row" data-check="three" data-status={threeStatus}>
+        <dt>3D under Lightning Web Security</dt>
+        <dd>{threeStatus} <span>{threeDetail}</span></dd>
+      </div>
+      <div class="row" data-check="ai" data-status={aiStatus}>
+        <dt>AI from the public site</dt>
+        <dd>{aiStatus} <span>{aiDetail}</span></dd>
+      </div>
+      <div class="row" data-check="cors" data-status={corsStatus}>
+        <dt>Browser → org API (live connect)</dt>
+        <dd>{corsStatus} <span>{corsDetail}</span></dd>
+      </div>
+    </dl>
+  </section>
+</template>

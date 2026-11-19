@@ -1,0 +1,86 @@
+name: CI
+
+# Pull requests into main: quality checks + a check-only deploy with all local tests.
+# Push to main: quality checks, deploy, publish the site, then a guest smoke test on the live site.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SITE_URL: https://orgfarm-bd59095f65-dev-ed.develop.my.site.com/watchitbuild/
+  SITE_NAME: watchitbuild
+
+jobs:
+  quality:
+    name: Lint, format, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run prettier:verify
+      - run: npm run lint
+      - run: npm run test:unit
+
+  salesforce:
+    name: Salesforce org (validate on PR, deploy on main)
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Salesforce CLI
+        run: npm install --global @salesforce/cli@2
+      - name: Authenticate (watchitbuild org only)
+        env:
+          SFDX_AUTH_URL: ${{ secrets.SFDX_AUTH_URL }}
+        run: |
+          test -n "$SFDX_AUTH_URL" || { echo "Missing SFDX_AUTH_URL secret"; exit 1; }
+          printf '%s' "$SFDX_AUTH_URL" > auth.txt
+          sf org login sfdx-url --sfdx-url-file auth.txt --alias watchitbuild
+          rm auth.txt
+          sf org display --target-org watchitbuild | grep -q "orgfarm-bd59095f65" || { echo "Auth URL is not the watchitbuild org"; exit 1; }
+
+      - name: Validate (check-only deploy)
+        if: github.event_name == 'pull_request'
+        run: sf project deploy validate --source-dir force-app --test-level RunLocalTests --target-org watchitbuild --wait 30
+
+      - name: Deploy
+        if: github.event_name != 'pull_request'
+        run: sf project deploy start --source-dir force-app --test-level RunLocalTests --target-org watchitbuild --wait 30
+
+      - name: Publish site
+        if: github.event_name != 'pull_request'
+        run: sf community publish --name "$SITE_NAME" --target-org watchitbuild
+
+      - name: Guest smoke test on the live site
+        if: github.event_name != 'pull_request'
+        env:
+          CHROME_PATH: google-chrome
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if node scripts/smoke/guest-smoke.mjs "$SITE_URL" smoke.png 45000; then exit 0; fi
+            echo "Attempt $attempt failed, the site may still be publishing. Retrying in 30s."
+            sleep 30
+          done
+          exit 1
+
+      - name: Upload smoke screenshot
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: guest-smoke
+          path: smoke.png
+          if-no-files-found: ignore
