@@ -10,6 +10,7 @@ import { DEMO_RUN } from "c/xrayDemoRun";
 import { ROLES, AGENTS } from "c/xrayDemoData";
 import { toSegments } from "c/xrayText";
 import { getConfig, agentStep, summarize, messageOf } from "c/xrayApi";
+import { isSignInReturn } from "c/xrayConnect";
 
 const PHASES = ["Survey", "Dig", "Verify", "Map"];
 const freshQuestions = () =>
@@ -54,6 +55,14 @@ export default class XrayApp extends LightningElement {
   _run = null;
 
   /* ---------- lifecycle ---------- */
+
+  connectedCallback() {
+    // Back from a visitor's login page: reopen the panel (it finishes the sign-in) and skip the demo autoplay.
+    if (isSignInReturn()) {
+      this.uploadOpen = true;
+      this.takeControl();
+    }
+  }
 
   renderedCallback() {
     if (this._booted) return;
@@ -462,7 +471,7 @@ export default class XrayApp extends LightningElement {
 
   get orgLabel() {
     return this.index && this.index !== DEMO_ORG
-      ? "Your org · stays in this browser"
+      ? `${this.index.kind === "live" ? this.index.name : "Your org"} · stays in this browser`
       : "Alder & Pine Outfitters · demo org";
   }
 

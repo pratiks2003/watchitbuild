@@ -175,7 +175,7 @@ function readFlow(name, root, out) {
   });
 }
 
-function readTrigger(name, body, meta, out) {
+export function readTrigger(name, body, meta, out) {
   const m = /trigger\s+(\w+)\s+on\s+(\w+)\s*\(([^)]*)\)/i.exec(body);
   const calls = [...body.matchAll(/\b([A-Z]\w+)\.(\w+)\s*\(/g)]
     .map((x) => x[1])
@@ -208,7 +208,7 @@ function readTrigger(name, body, meta, out) {
   });
 }
 
-function readClass(name, body, meta, objectNames, out) {
+export function readClass(name, body, meta, objectNames, out) {
   if (/@isTest/i.test(body.slice(0, 2000))) return; // tests describe nothing about the business
   const src = body.slice(0, MAX_CLASS_CHARS);
   const kinds = [];
