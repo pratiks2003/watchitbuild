@@ -6,9 +6,8 @@
  * Input: Map or object of { "unpackaged/flows/X.flow": "<xml…>" }.
  */
 
-const MAX_COMPONENTS = 600;
-const MAX_OBJECTS = 200;
-const MAX_PERMSETS = 40;
+// No silent caps: the whole org is indexed. (The 3D site draws a sample; tools see everything.)
+const MAX_PERMSETS = 200;
 const MAX_VALUES = 12;
 const MAX_CLASS_CHARS = 200000;
 
@@ -55,6 +54,75 @@ const child = (el, name) => children(el, name)[0] ?? null;
 const text = (el, name) => child(el, name)?.textContent?.trim() ?? "";
 function clip(s, n) {
   return s && s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+
+/* ---------- shared analysis (used by the zip reader and live connect) ---------- */
+
+/** Notable behaviours spotted in code or flow definitions, searchable by the crew. */
+const SIGNALS = [
+  [/Database\.convertLead|\bLeadConvert\b/i, "converts leads"],
+  [
+    /\bIsConverted\b|ConvertedAccountId|ConvertedContactId|ConvertedOpportunityId/i,
+    "reacts to lead conversion"
+  ],
+  [/Approval\.process|Approval\.ProcessSubmitRequest/i, "submits for approval"],
+  [/Messaging\.(sendEmail|SingleEmailMessage)/i, "sends email"],
+  [/EventBus\.publish/i, "publishes platform events"],
+  [/@future|System\.enqueueJob|Database\.executeBatch/i, "starts async work"],
+  [/HttpRequest|callout:/i, "calls an outside system"]
+];
+export function signalsOf(textValue) {
+  const src = String(textValue ?? "");
+  const found = SIGNALS.filter(([re]) => re.test(src)).map(
+    ([, label]) => label
+  );
+  return found.length ? found : undefined;
+}
+
+/** Objects a piece of Apex reads or writes (SOQL FROM, typed DML, new X()). */
+export function objectsTouched(body, objectNames) {
+  const counts = {};
+  const bump = (n) => {
+    const hit = objectNames.get(n.toLowerCase());
+    if (hit) counts[hit] = (counts[hit] ?? 0) + 1;
+  };
+  for (const m of body.matchAll(/\bFROM\s+(\w+)/gi)) bump(m[1]);
+  for (const m of body.matchAll(/\bnew\s+(\w+)\s*\(/g)) bump(m[1]);
+  for (const m of body.matchAll(/\bList<(\w+)>/g)) bump(m[1]);
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([n]) => n);
+}
+
+const FLOW_TIMING = {
+  RecordAfterSave: "after",
+  RecordBeforeSave: "before",
+  RecordBeforeDelete: "beforeDelete"
+};
+const FLOW_ON = {
+  Create: ["create"],
+  Update: ["update"],
+  CreateAndUpdate: ["create", "update"],
+  Delete: ["delete"]
+};
+/** Firing facts for a record-triggered flow, or null when it is not record-triggered. */
+export function flowFires(
+  triggerType,
+  recordTriggerType,
+  order,
+  scheduled = []
+) {
+  const timing = FLOW_TIMING[triggerType];
+  if (!timing) return null;
+  return {
+    timing,
+    on:
+      timing === "beforeDelete"
+        ? ["delete"]
+        : (FLOW_ON[recordTriggerType] ?? ["create", "update"]),
+    order: order ? Number(order) : null,
+    scheduled: scheduled.length ? scheduled : undefined
+  };
 }
 
 const fileName = (path) => path.split("/").pop();
@@ -149,6 +217,14 @@ function readFlow(name, root, out) {
     ...children(root, "subflows").map((s) => `Subflow ${text(s, "flowName")}`)
   ];
   const triggerType = text(start, "triggerType");
+  const fires = flowFires(
+    triggerType,
+    text(start, "recordTriggerType"),
+    text(root, "triggerOrder"),
+    children(start, "scheduledPaths").map(
+      (p) => text(p, "label") || text(p, "name")
+    )
+  );
   const when = {
     RecordAfterSave: "after save",
     RecordBeforeSave: "before save",
@@ -162,7 +238,9 @@ function readFlow(name, root, out) {
     object,
     year: null,
     active: text(root, "status") === "Active",
+    fires: fires ?? undefined,
     detail: {
+      signals: signalsOf(root.textContent),
       label: text(root, "label"),
       trigger: when
         ? `Record-triggered, ${when}${text(start, "recordTriggerType") ? ` (${text(start, "recordTriggerType")})` : ""}`
@@ -177,6 +255,12 @@ function readFlow(name, root, out) {
 
 export function readTrigger(name, body, meta, out) {
   const m = /trigger\s+(\w+)\s+on\s+(\w+)\s*\(([^)]*)\)/i.exec(body);
+  const events = (m?.[3] ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase().replace(/\s+/g, " "))
+    .filter(Boolean);
+  const pick = (t) =>
+    events.filter((e) => e.startsWith(t)).map((e) => e.split(" ")[1]);
   const calls = [...body.matchAll(/\b([A-Z]\w+)\.(\w+)\s*\(/g)]
     .map((x) => x[1])
     .filter(
@@ -198,14 +282,20 @@ export function readTrigger(name, body, meta, out) {
     object: m?.[2] ?? null,
     year: null,
     active: !meta || /<status>Active<\/status>/.test(meta),
+    fires: { before: pick("before"), after: pick("after") },
     detail: {
-      events: (m?.[3] ?? "")
-        .split(",")
-        .map((e) => e.trim())
-        .filter(Boolean),
-      handler: [...new Set(calls)].slice(0, 3).join(", ") || undefined
+      events,
+      handler: [...new Set(calls)].slice(0, 4).join(", ") || undefined,
+      signals: signalsOf(body)
     }
   });
+}
+
+const LOOKUPS = new WeakMap();
+function lookupFor(names) {
+  if (!LOOKUPS.has(names))
+    LOOKUPS.set(names, new Map([...names].map((n) => [n.toLowerCase(), n])));
+  return LOOKUPS.get(names);
 }
 
 export function readClass(name, body, meta, objectNames, out) {
@@ -231,10 +321,12 @@ export function readClass(name, body, meta, objectNames, out) {
     .exec(src)?.[1]
     ?.replace(/\s*\*\s?/g, " ")
     .trim();
+  const lookup = lookupFor(objectNames);
+  const touches = objectsTouched(src, lookup);
   out.components.push({
     name,
     type: kinds.includes("batch") ? "batch" : "class",
-    object: writes.length === 1 ? writes[0] : null,
+    object: writes.length === 1 ? writes[0] : (touches[0] ?? null),
     year: null,
     active: !meta || !/<status>Deleted<\/status>/.test(meta),
     detail: {
@@ -244,6 +336,8 @@ export function readClass(name, body, meta, objectNames, out) {
         ? callouts.map((c) => `Named Credential ${c}`).join(", ")
         : undefined,
       writes: writes.length ? writes.slice(0, 6) : undefined,
+      touches: touches.length ? touches.slice(0, 8) : undefined,
+      signals: signalsOf(src),
       lines: src.split("\n").length
     }
   });
@@ -348,7 +442,28 @@ function readWorkflow(file, root, out) {
       object,
       year: null,
       active: text(r, "active") === "true",
-      detail: { criteria: clip(text(r, "formula"), 200) || undefined }
+      fires: {
+        on:
+          text(r, "triggerType") === "onCreateOnly"
+            ? ["create"]
+            : ["create", "update"]
+      },
+      detail: {
+        entryCriteria:
+          clip(
+            text(r, "formula") ||
+              children(r, "criteriaItems")
+                .map(
+                  (c) =>
+                    `${text(c, "field")} ${text(c, "operation")} ${text(c, "value")}`
+                )
+                .join(" AND "),
+            300
+          ) || undefined,
+        actions: children(r, "actions")
+          .map((a) => `${text(a, "type")}: ${text(a, "name")}`)
+          .slice(0, 8)
+      }
     });
   });
 }
@@ -414,7 +529,7 @@ export function buildIndex(files, { name = "Your org" } = {}) {
         (PRIORITY[a.type] ?? 99) - (PRIORITY[b.type] ?? 99) ||
         (b.active === a.active ? 0 : b.active ? 1 : -1)
     );
-  const components = ranked.slice(0, MAX_COMPONENTS);
+  const components = ranked;
   stats.skippedComponents = out.components.length - components.length;
   const touches = {};
   components.forEach((c) => {
@@ -423,7 +538,6 @@ export function buildIndex(files, { name = "Your org" } = {}) {
   const objects = out.objects
     .map((o) => ({ ...o, components: touches[o.name] ?? 0 }))
     .sort((a, b) => b.components - a.components)
-    .slice(0, MAX_OBJECTS)
     .map(({ components: n, ...o }) => ({ ...o, touchedBy: n }));
 
   return {

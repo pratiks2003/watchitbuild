@@ -34,6 +34,8 @@ export default class XrayApp extends LightningElement {
   mode = "replay"; // replay | live
   liveNote = "";
   uploadOpen = false;
+  firingOpen = false;
+  index = null; // the org being investigated (demo, upload or live)
 
   phaseIndex = 0;
   caption = { plain: "Loading the dig site…", tech: "Loading the dig site…" };
@@ -449,6 +451,23 @@ export default class XrayApp extends LightningElement {
   handleOverview() {
     this.follow = true;
     this.world?.overview();
+  }
+
+  get isDemo() {
+    return !this.index || this.index === DEMO_ORG;
+  }
+
+  /** A real org has too many findings for loose cards: always group them. */
+  get groupedBoard() {
+    return this.big || !this.isDemo;
+  }
+
+  openFiring() {
+    this.firingOpen = true;
+  }
+
+  closeFiring() {
+    this.firingOpen = false;
   }
 
   openUpload() {

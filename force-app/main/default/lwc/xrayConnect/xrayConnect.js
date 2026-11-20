@@ -7,16 +7,13 @@
  * Visitor-org setup (their admin, once): add this site's origin to Setup > CORS, and
  * tick "Enable CORS for OAuth endpoints".
  */
-import { readTrigger, readClass } from "c/xrayIndexer";
+import { readTrigger, readClass, flowFires, signalsOf } from "c/xrayIndexer";
 
 /** Public client ID of the "Org X-Ray" connected app (not a secret: PKCE public client). */
 export const CLIENT_ID =
   "3MVG91oqviqJKoEFkOuhB_Rqa.Hj5fNuMLOc6Fw1TqogHGA2Xb_EexU5kkuCGJtgqRjICnbo4fYwKYJncOQD3";
 const API = "v68.0";
 const PENDING_KEY = "orgxray.oauth";
-const MAX_FLOW_DETAILS = 40;
-const MAX_COMPONENTS = 600;
-const MAX_OBJECTS = 200;
 const KEY_OBJECTS = [
   "Account",
   "Contact",
@@ -159,6 +156,10 @@ export async function finishSignIn(location = window.location) {
 
 /* ---------- reading the org ---------- */
 
+const PARALLEL = 6; // browsers allow ~6 requests per host; stay polite to the org's API
+const COUNT_BATCH = 100;
+const SYSTEM_SUFFIX = /(Share|History|Feed|ChangeEvent|Tag|__mdt|__e|__x|__b)$/;
+
 function apiClient({ token, instanceUrl }, fetchImpl = fetch) {
   const get = async (path) => {
     const response = await fetchImpl(`${instanceUrl}${path}`, {
@@ -170,27 +171,141 @@ function apiClient({ token, instanceUrl }, fetchImpl = fetch) {
     }
     return response.json();
   };
-  const query = async (soql, tooling = false, maxPages = 3) => {
+  /** Every page of a query. onPage(records, soFar, total) lets callers process and report as it goes. */
+  const query = async (soql, tooling = false, onPage) => {
     let page = await get(
       `/services/data/${API}/${tooling ? "tooling/" : ""}query?q=${encodeURIComponent(soql)}`
     );
-    const records = [...page.records];
-    for (let i = 1; i < maxPages && page.nextRecordsUrl; i++) {
+    const all = [];
+    for (;;) {
+      all.push(...page.records);
+      onPage?.(page.records, all.length, page.totalSize ?? all.length);
+      if (!page.nextRecordsUrl) break;
       // eslint-disable-next-line no-await-in-loop -- pages must be fetched in order
       page = await get(page.nextRecordsUrl);
-      records.push(...page.records);
     }
-    return records;
+    return all;
   };
-  return { get, query };
+  /** Tooling returns `Metadata` only one row at a time. */
+  const metadataOf = (sobject, id) =>
+    query(`SELECT Metadata FROM ${sobject} WHERE Id = '${id}'`, true).then(
+      (rows) => rows[0]?.Metadata ?? null
+    );
+  return { get, query, metadataOf };
+}
+
+/** Runs fn over items, a few at a time, reporting progress; failures become null. */
+async function pool(items, fn, onDone) {
+  const results = new Array(items.length).fill(null);
+  let next = 0;
+  let done = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        // eslint-disable-next-line no-await-in-loop -- each worker handles one item at a time
+        results[i] = await fn(items[i]);
+      } catch {
+        results[i] = null;
+      }
+      done++;
+      onDone?.(done, items.length);
+    }
+  };
+  await Promise.all(Array.from({ length: PARALLEL }, worker));
+  return results;
 }
 
 const yearOf = (iso) => (iso ? Number(String(iso).slice(0, 4)) : null);
+function valueOf(v) {
+  if (!v) return undefined;
+  return Object.values(v).find((x) => x !== null && x !== undefined);
+}
+function actionLabel(a) {
+  if (a.actionType === "apex") return `Apex ${a.actionName}`;
+  return `${a.actionType ?? "Action"}: ${a.actionName}`;
+}
+const fmt = (n) => Number(n).toLocaleString("en-US");
+
+/** Flow (or Process Builder) metadata JSON → index component. */
+export function flowComponent(row, meta) {
+  const start = meta?.start ?? {};
+  const pmv = Object.fromEntries(
+    (meta?.processMetadataValues ?? []).map((v) => [v.name, valueOf(v.value)])
+  );
+  const isProcess = row.ProcessType === "Workflow";
+  const object = start.object ?? pmv.ObjectType ?? null;
+  const fires = isProcess
+    ? object && {
+        timing: "after",
+        on:
+          pmv.TriggerType === "onCreateOnly"
+            ? ["create"]
+            : ["create", "update"],
+        order: null
+      }
+    : flowFires(
+        start.triggerType,
+        start.recordTriggerType,
+        meta?.triggerOrder,
+        (start.scheduledPaths ?? []).map((p) => p.label ?? p.name)
+      );
+  const actions = [
+    ...(meta?.recordCreates ?? []).map((r) => `Create ${r.object ?? "record"}`),
+    ...(meta?.recordUpdates ?? []).map(
+      (r) =>
+        `Update ${r.object ?? (r.inputReference === "$Record" ? "this record" : r.inputReference) ?? "record"}`
+    ),
+    ...(meta?.recordDeletes ?? []).map((r) => `Delete ${r.object ?? "record"}`),
+    ...(meta?.actionCalls ?? []).map(actionLabel),
+    ...(meta?.subflows ?? []).map((f) => `Subflow ${f.flowName}`)
+  ];
+  const filters = (start.filters ?? []).map((x) =>
+    `${x.field} ${x.operator} ${valueOf(x.value) ?? ""}`.trim()
+  );
+  const when = {
+    RecordAfterSave: "after save",
+    RecordBeforeSave: "before save",
+    RecordBeforeDelete: "before delete",
+    Scheduled: "scheduled",
+    PlatformEvent: "platform event"
+  }[start.triggerType];
+  return {
+    name: row.Definition?.DeveloperName ?? row.Id,
+    type: isProcess ? "processBuilder" : "flow",
+    object,
+    year: yearOf(row.CreatedDate),
+    active: true,
+    fires: fires || undefined,
+    detail: {
+      label: meta?.label ?? row.MasterLabel,
+      trigger: when
+        ? `Record-triggered, ${when}${start.recordTriggerType ? ` (${start.recordTriggerType})` : ""}`
+        : isProcess
+          ? "Process (Process Builder)"
+          : (row.ProcessType ?? "Flow"),
+      entryCriteria:
+        start.filterFormula ??
+        (filters.length
+          ? filters.join(
+              start.filterLogic && start.filterLogic !== "and"
+                ? ` ${start.filterLogic} `
+                : " AND "
+            )
+          : undefined),
+      decisions: (meta?.decisions ?? []).length || undefined,
+      actions: [...new Set(actions)].slice(0, 12),
+      signals: meta ? signalsOf(JSON.stringify(meta)) : undefined,
+      partial: meta ? undefined : true
+    }
+  };
+}
 
 /**
- * Reads metadata (and aggregate counts only, never records) through the visitor's token,
- * and returns an index in the same shape as c/xrayDemoOrg. Each part is optional: if the
- * user lacks access to something, it is noted in stats and the rest still works.
+ * Reads the WHOLE org's automation (metadata, plus aggregate counts only; never records)
+ * through the visitor's token, and returns an index in the same shape as c/xrayDemoOrg.
+ * Nothing is capped: big orgs take longer, and progress is reported throughout.
+ * If the user lacks access to something, it is noted in stats and the rest still works.
  */
 export async function readOrg(
   session,
@@ -199,7 +314,7 @@ export async function readOrg(
   const api = apiClient(session, fetchImpl);
   const out = { objects: [], components: [] };
   const counts = {};
-  const stats = { skipped: [] };
+  const stats = { skipped: [], read: {} };
   const step = async (label, fn) => {
     onProgress(label);
     try {
@@ -208,6 +323,9 @@ export async function readOrg(
       stats.skipped.push(`${label}: ${error.message}`);
     }
   };
+  const tally = (type, n) => {
+    stats.read[type] = (stats.read[type] ?? 0) + n;
+  };
 
   let orgName = "Your org";
   await step("Reading the org name", async () => {
@@ -215,148 +333,151 @@ export async function readOrg(
       (await api.query("SELECT Name FROM Organization"))[0]?.Name ?? orgName;
   });
 
+  // Every object name, so code that mentions any object can be linked to it.
+  const catalog = new Map();
+  let objectNames = new Set();
   await step("Listing objects", async () => {
     const global = await api.get(`/services/data/${API}/sobjects`);
-    const custom = global.sobjects
-      .filter((o) => o.custom && o.name.endsWith("__c") && o.queryable)
-      .map((o) => o.name);
-    const standard = global.sobjects
-      .filter((o) => KEY_OBJECTS.includes(o.name))
-      .map((o) => o.name);
-    const names = [...standard, ...custom].slice(0, 150);
-    const labels = Object.fromEntries(
-      global.sobjects.map((o) => [o.name, o.label])
-    );
-    let recordCounts = {};
-    try {
-      const rc = await api.get(
-        `/services/data/${API}/limits/recordCount?sObjects=${names.join(",")}`
-      );
-      recordCounts = Object.fromEntries(
-        (rc.sObjects ?? []).map((s) => [s.name, s.count])
-      );
-    } catch {
-      // counts are a bonus; objects still work without them
-    }
-    names.forEach((name) => {
-      out.objects.push({
-        name,
-        label: labels[name] ?? name,
-        custom: name.endsWith("__c"),
-        records: recordCounts[name] ?? null,
-        fields: null,
-        year: null
-      });
-    });
+    global.sobjects
+      .filter((o) => o.queryable && !SYSTEM_SUFFIX.test(o.name))
+      .forEach((o) => catalog.set(o.name, o));
+    objectNames = new Set(catalog.keys());
   });
 
   await step("Reading flows", async () => {
-    const flows = await api.query(
-      "SELECT Id, Definition.DeveloperName, ProcessType, Status, CreatedDate FROM Flow WHERE Status = 'Active' AND Definition.NamespacePrefix = null",
+    const rows = await api.query(
+      "SELECT Id, Definition.DeveloperName, MasterLabel, ProcessType, CreatedDate FROM Flow WHERE Status = 'Active' AND Definition.NamespacePrefix = null",
       true
     );
-    // The browser caps parallel requests per host, so this stays polite.
-    const metas = await Promise.all(
-      flows.slice(0, MAX_FLOW_DETAILS).map((f) =>
-        api
-          .query(`SELECT Metadata FROM Flow WHERE Id = '${f.Id}'`, true)
-          .then((rows) => rows[0]?.Metadata ?? null)
-          .catch(() => null)
-      )
+    const metas = await pool(
+      rows,
+      (r) => api.metadataOf("Flow", r.Id),
+      (done, total) =>
+        onProgress(`Reading flows: ${fmt(done)} of ${fmt(total)}`)
     );
-    for (const [i, f] of flows.entries()) {
-      const meta = metas[i] ?? null;
-      const start = meta?.start ?? {};
-      const when = {
-        RecordAfterSave: "after save",
-        RecordBeforeSave: "before save",
-        RecordBeforeDelete: "before delete",
-        Scheduled: "scheduled",
-        PlatformEvent: "platform event"
-      }[start.triggerType];
-      const actions = [
-        ...(meta?.recordCreates ?? []).map(
-          (r) => `Create ${r.object ?? "record"}`
-        ),
-        ...(meta?.recordUpdates ?? []).map(
-          (r) => `Update ${r.object ?? r.inputReference ?? "record"}`
-        ),
-        ...(meta?.actionCalls ?? []).map(
-          (a) => `${a.actionType ?? "Action"}: ${a.actionName}`
-        )
-      ];
-      out.components.push({
-        name: f.Definition?.DeveloperName ?? f.Id,
-        type: f.ProcessType === "Workflow" ? "processBuilder" : "flow",
-        object: start.object ?? null,
-        year: yearOf(f.CreatedDate),
-        active: true,
-        detail: {
-          label: meta?.label,
-          trigger: when
-            ? `Record-triggered, ${when}${start.recordTriggerType ? ` (${start.recordTriggerType})` : ""}`
-            : f.ProcessType,
-          entryCriteria:
-            start.filterFormula ??
-            ((start.filters ?? [])
-              .map(
-                (x) =>
-                  `${x.field} ${x.operator} ${Object.values(x.value ?? {}).find((v) => v != null) ?? ""}`
-              )
-              .join(" AND ") ||
-              undefined),
-          actions: [...new Set(actions)].slice(0, 10)
-        }
-      });
-    }
+    rows.forEach((r, i) => out.components.push(flowComponent(r, metas[i])));
+    tally("flows", rows.length);
+    const partial = metas.filter((m) => !m).length;
+    if (partial)
+      stats.skipped.push(`Flow details: ${partial} flows could not be opened`);
   });
 
   await step("Reading triggers", async () => {
-    const triggers = await api.query(
-      "SELECT Name, Status, CreatedDate, Body FROM ApexTrigger WHERE NamespacePrefix = null LIMIT 200",
-      true
+    await api.query(
+      "SELECT Name, TableEnumOrId, Status, CreatedDate, Body FROM ApexTrigger WHERE NamespacePrefix = null",
+      true,
+      (records, soFar, total) => {
+        records.forEach((t) => {
+          readTrigger(
+            t.Name,
+            t.Body ?? "",
+            `<status>${t.Status}</status>`,
+            out
+          );
+          const c = out.components[out.components.length - 1];
+          c.year = yearOf(t.CreatedDate);
+          c.object = t.TableEnumOrId ?? c.object;
+        });
+        tally("triggers", records.length);
+        onProgress(`Reading triggers: ${fmt(soFar)} of ${fmt(total)}`);
+      }
     );
-    triggers.forEach((t) => {
-      readTrigger(t.Name, t.Body ?? "", `<status>${t.Status}</status>`, out);
-      out.components[out.components.length - 1].year = yearOf(t.CreatedDate);
-    });
   });
 
   await step("Reading Apex classes", async () => {
-    const objectNames = new Set(out.objects.map((o) => o.name));
-    const classes = await api.query(
-      "SELECT Name, Status, CreatedDate, Body FROM ApexClass WHERE NamespacePrefix = null LIMIT 300",
-      true
+    // Processed page by page, so even thousands of classes stay light on memory.
+    await api.query(
+      "SELECT Name, Status, CreatedDate, Body FROM ApexClass WHERE NamespacePrefix = null",
+      true,
+      (records, soFar, total) => {
+        records.forEach((c) => {
+          const before = out.components.length;
+          readClass(
+            c.Name,
+            c.Body ?? "",
+            `<status>${c.Status}</status>`,
+            objectNames,
+            out
+          );
+          if (out.components.length > before)
+            out.components[out.components.length - 1].year = yearOf(
+              c.CreatedDate
+            );
+        });
+        tally("classes", records.length);
+        onProgress(`Reading Apex classes: ${fmt(soFar)} of ${fmt(total)}`);
+      }
     );
-    classes.forEach((c) => {
-      const before = out.components.length;
-      readClass(
-        c.Name,
-        c.Body ?? "",
-        `<status>${c.Status}</status>`,
-        objectNames,
-        out
-      );
-      if (out.components.length > before)
-        out.components[out.components.length - 1].year = yearOf(c.CreatedDate);
-    });
   });
 
   await step("Reading validation rules", async () => {
     const rules = await api.query(
-      "SELECT ValidationName, Active, ErrorMessage, CreatedDate, EntityDefinition.QualifiedApiName FROM ValidationRule WHERE NamespacePrefix = null",
+      "SELECT Id, ValidationName, Active, ErrorMessage, CreatedDate, EntityDefinition.QualifiedApiName FROM ValidationRule WHERE NamespacePrefix = null",
       true
     );
-    rules.forEach((r) => {
+    const metas = await pool(
+      rules,
+      (r) => api.metadataOf("ValidationRule", r.Id),
+      (done, total) =>
+        onProgress(`Reading validation rules: ${fmt(done)} of ${fmt(total)}`)
+    );
+    rules.forEach((r, i) => {
       out.components.push({
         name: r.ValidationName,
         type: "validation",
         object: r.EntityDefinition?.QualifiedApiName ?? null,
         year: yearOf(r.CreatedDate),
         active: r.Active,
-        detail: { message: r.ErrorMessage }
+        detail: {
+          rule: metas[i]?.errorConditionFormula?.slice(0, 300),
+          message: r.ErrorMessage,
+          signals: signalsOf(metas[i]?.errorConditionFormula)
+        }
       });
     });
+    tally("validation rules", rules.length);
+  });
+
+  await step("Reading workflow rules", async () => {
+    const rules = await api.query(
+      "SELECT Id, Name, TableEnumOrId, CreatedDate FROM WorkflowRule WHERE NamespacePrefix = null",
+      true
+    );
+    const metas = await pool(
+      rules,
+      (r) => api.metadataOf("WorkflowRule", r.Id),
+      (done, total) =>
+        onProgress(`Reading workflow rules: ${fmt(done)} of ${fmt(total)}`)
+    );
+    rules.forEach((r, i) => {
+      const m = metas[i];
+      out.components.push({
+        name: r.Name,
+        type: "workflow",
+        object: r.TableEnumOrId,
+        year: yearOf(r.CreatedDate),
+        active: m ? m.active !== false : true,
+        fires: {
+          on:
+            m?.triggerType === "onCreateOnly"
+              ? ["create"]
+              : ["create", "update"]
+        },
+        detail: {
+          entryCriteria:
+            m?.formula ??
+            ((m?.criteriaItems ?? [])
+              .map((c) => `${c.field} ${c.operation} ${c.value ?? ""}`.trim())
+              .join(" AND ") ||
+              undefined),
+          actions: (m?.actions ?? [])
+            .map((a) => `${a.type}: ${a.name}`)
+            .slice(0, 8),
+          partial: m ? undefined : true
+        }
+      });
+    });
+    tally("workflow rules", rules.length);
   });
 
   await step("Reading approval processes", async () => {
@@ -373,6 +494,7 @@ export async function readOrg(
         detail: { label: a.Name }
       });
     });
+    tally("approvals", approvals.length);
   });
 
   await step("Reading named credentials", async () => {
@@ -411,12 +533,22 @@ export async function readOrg(
   });
 
   await step("Reading stages and statuses", async () => {
+    let convertedStatus = [];
+    try {
+      convertedStatus = (
+        await api.query(
+          "SELECT MasterLabel FROM LeadStatus WHERE IsConverted = true"
+        )
+      ).map((r) => r.MasterLabel);
+    } catch {
+      // no Lead access
+    }
     for (const [object, field] of [
       ["Opportunity", "StageName"],
       ["Case", "Status"],
       ["Lead", "Status"]
     ]) {
-      if (!out.objects.some((o) => o.name === object)) continue;
+      if (!catalog.has(object)) continue;
       // eslint-disable-next-line no-await-in-loop -- a few small describes, in order
       const describe = await api.get(
         `/services/data/${API}/sobjects/${object}/describe`
@@ -433,7 +565,13 @@ export async function readOrg(
           object,
           year: null,
           active: true,
-          detail: { values: values.slice(0, 12) }
+          detail: {
+            values: values.slice(0, 30),
+            convertedStatus:
+              object === "Lead" && convertedStatus.length
+                ? convertedStatus
+                : undefined
+          }
         });
       // Aggregate counts only: no record is read.
       // eslint-disable-next-line no-await-in-loop
@@ -447,22 +585,51 @@ export async function readOrg(
     }
   });
 
-  onProgress("Building the map of your org");
+  // Objects: every custom object, plus every standard object that has automation or code on it.
   const touches = {};
   out.components.forEach((c) => {
     if (c.object) touches[c.object] = (touches[c.object] ?? 0) + 1;
   });
-  const objects = out.objects
-    .map((o) => ({ ...o, touchedBy: touches[o.name] ?? 0 }))
+  const wanted = [...catalog.values()]
+    .filter(
+      (o) =>
+        (o.custom && o.name.endsWith("__c")) ||
+        touches[o.name] ||
+        KEY_OBJECTS.includes(o.name)
+    )
+    .map((o) => o.name);
+  const recordCounts = {};
+  await step("Counting records", async () => {
+    for (let i = 0; i < wanted.length; i += COUNT_BATCH) {
+      // eslint-disable-next-line no-await-in-loop -- small batches keep the URL short
+      const rc = await api.get(
+        `/services/data/${API}/limits/recordCount?sObjects=${wanted.slice(i, i + COUNT_BATCH).join(",")}`
+      );
+      (rc.sObjects ?? []).forEach((x) => {
+        recordCounts[x.name] = x.count;
+      });
+    }
+  });
+
+  onProgress("Building the map of your org");
+  const objects = wanted
+    .map((name) => ({
+      name,
+      label: catalog.get(name)?.label ?? name,
+      custom: name.endsWith("__c"),
+      records: recordCounts[name] ?? null,
+      fields: null,
+      year: null,
+      touchedBy: touches[name] ?? 0
+    }))
     .sort(
       (a, b) => b.touchedBy - a.touchedBy || (b.records ?? 0) - (a.records ?? 0)
-    )
-    .slice(0, MAX_OBJECTS);
+    );
   return {
     name: orgName,
     kind: "live",
     objects,
-    components: out.components.slice(0, MAX_COMPONENTS),
+    components: out.components,
     counts,
     layering: layeringFor(out.components),
     stats

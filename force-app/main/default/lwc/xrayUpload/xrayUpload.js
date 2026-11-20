@@ -10,6 +10,16 @@ import {
   cleanDomain
 } from "c/xrayConnect";
 
+const FLOW_KIND = {
+  AutoLaunchedFlow: "autolaunched (called by others)",
+  Flow: "screen",
+  Survey: "survey",
+  RoutingFlow: "routing",
+  PromptFlow: "prompt",
+  Orchestrator: "orchestration",
+  "Record-triggered, scheduled": "scheduled",
+  "Record-triggered, platform event": "platform event"
+};
 const MAX_ZIP_BYTES = 40 * 1024 * 1024;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const FOLDERS = new Set([
@@ -203,6 +213,28 @@ export default class XrayUpload extends LightningElement {
       .map(([t, n]) => `${n} ${t}`)
       .join(" · ");
     return `${this.index.objects.length} objects · ${this.index.components.length} components (${parts})`;
+  }
+
+  /** How the flows start, so a visitor can see at a glance what runs on save. */
+  get flowText() {
+    const flows = (this.index?.components ?? []).filter(
+      (c) => c.type === "flow" || c.type === "processBuilder"
+    );
+    if (!flows.length) return "";
+    const kinds = {};
+    flows.forEach((f) => {
+      const k = f.fires
+        ? `record-triggered (${f.fires.timing === "before" ? "before save" : f.fires.timing === "beforeDelete" ? "before delete" : "after save"})`
+        : f.type === "processBuilder"
+          ? "processes"
+          : (FLOW_KIND[f.detail?.trigger] ??
+            String(f.detail?.trigger ?? "other").toLowerCase());
+      kinds[k] = (kinds[k] ?? 0) + 1;
+    });
+    return `Flows: ${Object.entries(kinds)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${n} ${k}`)
+      .join(" · ")}`;
   }
 
   get skippedText() {

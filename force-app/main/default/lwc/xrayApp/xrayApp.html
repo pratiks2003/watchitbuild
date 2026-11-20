@@ -28,12 +28,14 @@
           I'm new here
         </button>
       </div>
-      <div class="seg" role="group" aria-label="Org size">
-        <button aria-pressed={pressedDemo} onclick={setDemo}>Demo org</button>
-        <button aria-pressed={pressedBig} onclick={setBig}>
-          Production-size
-        </button>
-      </div>
+      <template lwc:if={isDemo}>
+        <div class="seg" role="group" aria-label="Org size">
+          <button aria-pressed={pressedDemo} onclick={setDemo}>Demo org</button>
+          <button aria-pressed={pressedBig} onclick={setBig}>
+            Production-size
+          </button>
+        </div>
+      </template>
       <div class="ctl">
         <button class="btn primary" onclick={handleReplay}>
           {replayLabel}
@@ -45,6 +47,7 @@
           {speedLabel}
         </button>
         <button class="btn" onclick={handleSkip}>Skip to results</button>
+        <button class="btn" onclick={openFiring}>⚡ What fires when</button>
         <button class="btn org" onclick={openUpload}>Use your org</button>
       </div>
     </header>
@@ -119,7 +122,7 @@
     <div class="grid" data-check="findings" data-status={findingsStatus}>
       <c-xray-board
         findings={findings}
-        grouped={big}
+        grouped={groupedBoard}
         onask={handleCardAsk}
       ></c-xray-board>
       <c-xray-case-file
@@ -145,8 +148,15 @@
     onindex={handleIndex}
   ></c-xray-upload>
 
+  <c-xray-firing-panel
+    open={firingOpen}
+    org-index={index}
+    onclose={closeFiring}
+  ></c-xray-firing-panel>
+
   <c-xray-chat
     lwc:ref="chat"
+    org-index={index}
     agent={chatAgent}
     findings={findings}
     summary={summary}

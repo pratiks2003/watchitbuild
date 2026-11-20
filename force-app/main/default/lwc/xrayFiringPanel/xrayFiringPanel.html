@@ -1,0 +1,191 @@
+<template>
+  <div class={panelCls} aria-hidden={ariaHidden} onkeydown={handleKeydown}>
+    <template lwc:if={open}>
+      <section
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="firing-title"
+      >
+        <header>
+          <div>
+            <h2 id="firing-title">⚡ What fires when</h2>
+            <p class="sub">
+              Everything that runs automatically when a record is saved, in
+              Salesforce's order of execution. Built only from this org's own
+              metadata.
+            </p>
+          </div>
+          <button class="x" aria-label="Close" onclick={handleClose}>×</button>
+        </header>
+
+        <template lwc:if={hasObjects}>
+          <div class="pick">
+            <label>
+              <span>Find an object</span>
+              <input
+                type="search"
+                placeholder="Lead, Opportunity, Booking__c…"
+                value={filter}
+                oninput={handleFilter}
+              />
+            </label>
+            <label>
+              <span>Object (automations)</span>
+              <select onchange={handleObject} aria-label="Object">
+                <template for:each={objectOptions} for:item="o">
+                  <option key={o.name} value={o.name} selected={o.selected}>
+                    {o.label}
+                  </option>
+                </template>
+              </select>
+            </label>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="When the record is">
+            <template for:each={eventTabs} for:item="t">
+              <button
+                key={t.k}
+                class={t.cls}
+                role="tab"
+                aria-selected={t.selected}
+                data-k={t.k}
+                onclick={handleEvent}
+              >
+                {t.label}
+              </button>
+            </template>
+          </div>
+
+          <template lwc:if={result}>
+            <template lwc:if={result.empty}>
+              <p class="empty">{emptyText}</p>
+            </template>
+            <template for:each={result.phases} for:item="p">
+              <section key={p.k} class="phase">
+                <h3>{p.title}</h3>
+                <template lwc:if={p.note}
+                  ><p class="note">{p.note}</p></template
+                >
+                <ol class="items">
+                  <template for:each={p.items} for:item="i">
+                    <li key={i.key} class="item">
+                      <span class="n">{i.n}</span>
+                      <div class="body">
+                        <p class="name">
+                          <span class="icon" aria-hidden="true">{i.icon}</span>
+                          <code>{i.name}</code>
+                          <span class="type">{i.typeLabel}</span>
+                          <template lwc:if={i.order}
+                            ><span class="type">order {i.order}</span></template
+                          >
+                        </p>
+                        <template lwc:if={i.label}
+                          ><p class="label">{i.label}</p></template
+                        >
+                        <template lwc:if={i.condition}
+                          ><p class="cond">
+                            <b>When</b> {i.condition}
+                          </p></template
+                        >
+                        <template lwc:if={i.message}
+                          ><p class="cond">
+                            <b>Blocks with</b> “{i.message}”
+                          </p></template
+                        >
+                        <template lwc:if={i.callList.length}>
+                          <ul class="calls">
+                            <template for:each={i.callList} for:item="c">
+                              <li key={c.key}>→ {c.text}</li>
+                            </template>
+                          </ul>
+                        </template>
+                        <template lwc:if={i.signalText}
+                          ><p class="signal">{i.signalText}</p></template
+                        >
+                      </div>
+                    </li>
+                  </template>
+                </ol>
+              </section>
+            </template>
+            <template lwc:if={result.later.length}>
+              <section class="phase">
+                <h3>Later (scheduled paths)</h3>
+                <ul class="calls">
+                  <template for:each={result.later} for:item="l">
+                    <li key={l}>{l}</li>
+                  </template>
+                </ul>
+              </section>
+            </template>
+            <template lwc:if={inactiveText}
+              ><p class="note">{inactiveText}</p></template
+            >
+          </template>
+
+          <template lwc:if={conversion}>
+            <p class="note">{conversion.note}</p>
+            <template lwc:if={conversion.hasCode}>
+              <section class="phase">
+                <h3>Code and flows that convert or react to conversion</h3>
+                <ul class="calls">
+                  <template for:each={conversion.code} for:item="c">
+                    <li key={c.key}><code>{c.text}</code></li>
+                  </template>
+                </ul>
+              </section>
+            </template>
+            <template for:each={conversion.parts} for:item="part">
+              <section key={part.key} class="part">
+                <h3 class="parttitle">{part.title}</h3>
+                <template lwc:if={part.empty}>
+                  <p class="empty">Nothing runs here.</p>
+                </template>
+                <template for:each={part.phases} for:item="p">
+                  <div key={p.k} class="phase">
+                    <h4>{p.title}</h4>
+                    <ol class="items">
+                      <template for:each={p.items} for:item="i">
+                        <li key={i.key} class="item">
+                          <span class="n">{i.n}</span>
+                          <div class="body">
+                            <p class="name">
+                              <span class="icon" aria-hidden="true"
+                                >{i.icon}</span
+                              >
+                              <code>{i.name}</code>
+                              <span class="type">{i.typeLabel}</span>
+                            </p>
+                            <template lwc:if={i.condition}
+                              ><p class="cond">
+                                <b>When</b> {i.condition}
+                              </p></template
+                            >
+                            <template lwc:if={i.callList.length}>
+                              <ul class="calls">
+                                <template for:each={i.callList} for:item="c">
+                                  <li key={c.key}>→ {c.text}</li>
+                                </template>
+                              </ul>
+                            </template>
+                          </div>
+                        </li>
+                      </template>
+                    </ol>
+                  </div>
+                </template>
+              </section>
+            </template>
+          </template>
+        </template>
+        <template lwc:else>
+          <p class="empty">
+            No record-saving automation found in this org (no record-triggered
+            flows, triggers, validation or workflow rules).
+          </p>
+        </template>
+      </section>
+    </template>
+  </div>
+</template>
