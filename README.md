@@ -21,7 +21,27 @@ Visitor's browser (public LWR site)                 watchitbuild org
 
 ## Investigate your own org
 
-On the site, press **Use your org**. Run the command it shows against a sandbox or dev org (it exports metadata only, no records), then choose the `orgxray.zip` it creates. The zip is read in your browser tab and never uploaded or stored; while the crew works, only the pieces it reads are sent to the AI, one step at a time.
+On the site, press **Use your org**. Use a sandbox or dev org. There are two ways in:
+
+**Sign in (recommended).** Your admin does a one-time setup: in Setup › CORS, add the site's origin and tick **Enable CORS for OAuth endpoints**. Then enter your My Domain and sign in. The site uses OAuth 2.0 with PKCE as a public client with no secret. The code is exchanged at your own My Domain, straight from your browser, so the token never reaches our server. It stays in the tab's memory, is used once to read metadata and record _counts_ (never records), and is then dropped.
+
+```mermaid
+sequenceDiagram
+  participant B as Your browser (orgxray site)
+  participant O as Your org (My Domain)
+  participant AI as Einstein (via site Apex)
+  B->>O: /services/oauth2/authorize (PKCE challenge)
+  O-->>B: redirect back with code
+  B->>O: /services/oauth2/token (code + verifier, CORS)
+  O-->>B: access token (kept in tab memory)
+  B->>O: REST + Tooling reads (metadata, counts)
+  Note over B: token dropped, index built in the tab
+  B->>AI: one small slice per crew step
+```
+
+**Upload a zip.** Run the `sf` command the panel shows (it exports metadata only), then choose the `orgxray.zip` it creates. The zip is read in your browser tab and is never uploaded or stored.
+
+Either way, while the crew works, only the pieces it reads are sent to the AI, one step at a time.
 
 ## Project layout
 

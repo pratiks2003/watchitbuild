@@ -129,10 +129,12 @@ export function buildLayout(index) {
   }));
   const byLayer = Object.fromEntries(BANDS.map((b) => [b.k, []]));
   index.components.forEach((component) => {
-    const band = byKind
-      ? (BANDS.find((b) => b.k === (KIND_BAND[component.type] ?? "older")) ??
-        BANDS[3])
-      : bandOf(component.year);
+    // Undated items (e.g. picklists) sit with their kind rather than claiming to be ancient.
+    const band =
+      byKind || !component.year
+        ? (BANDS.find((b) => b.k === (KIND_BAND[component.type] ?? "older")) ??
+          BANDS[3])
+        : bandOf(component.year);
     layers.find((l) => l.k === band.k).count++;
     byLayer[band.k].push(component);
   });

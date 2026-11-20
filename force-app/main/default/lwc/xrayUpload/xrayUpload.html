@@ -12,83 +12,185 @@
           <button class="x" aria-label="Close" onclick={handleClose}>×</button>
         </header>
 
-        <ol class="steps">
-          <li>
-            <h3>1. Export your metadata with the Salesforce CLI</h3>
-            <p>
-              Use a sandbox or a dev org. This reads metadata only: no records.
-            </p>
-            <label class="alias">
-              <span>Your org alias</span>
-              <input
-                type="text"
-                value={alias}
-                oninput={handleAlias}
-                aria-label="Your org alias"
-              />
-            </label>
-            <div class="cmd">
-              <textarea
-                lwc:ref="command"
-                readonly
-                rows="4"
-                aria-label="Command to run"
-                value={command}
-              ></textarea>
-              <button class="btn" onclick={handleCopy}>{copyLabel}</button>
-            </div>
-            <p class="note">
-              It creates <code>orgxray/orgxray.zip</code> in the folder you run
-              it from.
-            </p>
-          </li>
-          <li>
-            <h3>2. Choose the zip</h3>
-            <div class="drop" ondragover={handleDragOver} ondrop={handleDrop}>
-              <p>Drop <code>orgxray.zip</code> here, or</p>
-              <input
-                type="file"
-                accept=".zip"
-                onchange={handleFile}
-                aria-label="Choose orgxray.zip"
-              />
-            </div>
-            <template lwc:if={status}
-              ><p class="status" aria-live="polite">{status}</p></template
-            >
-            <template lwc:if={error}
-              ><p class="error" role="alert">{error}</p></template
-            >
-            <template lwc:if={hasIndex}>
-              <p class="found"><b>Found:</b> {summaryText}</p>
-              <template lwc:if={skippedText}
-                ><p class="note">{skippedText}</p></template
-              >
-            </template>
-          </li>
-          <li>
-            <h3>3. Send in the crew</h3>
-            <button
-              class="btn primary"
-              disabled={startDisabled}
-              onclick={handleStart}
-            >
-              ✦ Investigate my org
-            </button>
-            <template lwc:if={showResting}>
-              <p class="error">
-                The live AI crew is resting right now. Please try again later.
-              </p>
-            </template>
-          </li>
-        </ol>
+        <div class="tabs" role="tablist" aria-label="How to share your org">
+          <button
+            class={signInTabCls}
+            role="tab"
+            aria-selected={signInSelected}
+            onclick={showSignIn}
+          >
+            Sign in <span class="badge">recommended</span>
+          </button>
+          <button
+            class={zipTabCls}
+            role="tab"
+            aria-selected={zipSelected}
+            onclick={showZip}
+          >
+            Upload a zip
+          </button>
+        </div>
 
-        <p class="privacy">
-          <b>Your data:</b> the zip is read in this browser tab and never
-          uploaded or stored. While the crew works, only the pieces it reads are
-          sent to the AI, one step at a time, through the Einstein Trust Layer.
-          Close the tab and it's gone.
-        </p>
+        <template lwc:if={signInTab}>
+          <ol class="steps">
+            <li>
+              <h3>1. Let this site talk to your org (admin, once)</h3>
+              <p>
+                In your org: <b>Setup › CORS</b>. Add this origin to the
+                allowlist, and tick <b>Enable CORS for OAuth endpoints</b>.
+              </p>
+              <div class="origin">
+                <code>{siteOrigin}</code>
+                <button class="btn" onclick={handleCopyOrigin}>
+                  {originCopyLabel}
+                </button>
+              </div>
+              <p class="note">
+                Use a sandbox or a dev org. You can remove the entry when you
+                are done.
+              </p>
+            </li>
+            <li>
+              <h3>2. Sign in to your org</h3>
+              <label class="alias">
+                <span>My Domain</span>
+                <input
+                  class="domain"
+                  type="text"
+                  placeholder="acme--uat.sandbox.my.salesforce.com"
+                  value={domain}
+                  oninput={handleDomain}
+                  onkeydown={handleDomainKey}
+                  aria-label="Your org's My Domain"
+                  autocomplete="url"
+                />
+              </label>
+              <button
+                class="btn"
+                disabled={signInDisabled}
+                onclick={handleSignIn}
+              >
+                Sign in with Salesforce
+              </button>
+              <template lwc:if={status}
+                ><p class="status" aria-live="polite">{status}</p></template
+              >
+              <template lwc:if={error}
+                ><p class="error" role="alert">{error}</p></template
+              >
+              <template lwc:if={hasIndex}>
+                <p class="found"><b>Found:</b> {summaryText}</p>
+                <template lwc:if={skippedText}
+                  ><p class="note">{skippedText}</p></template
+                >
+              </template>
+            </li>
+            <li>
+              <h3>3. Send in the crew</h3>
+              <button
+                class="btn primary"
+                disabled={startDisabled}
+                onclick={handleStart}
+              >
+                ✦ Investigate my org
+              </button>
+              <template lwc:if={showResting}>
+                <p class="error">
+                  The live AI crew is resting right now. Please try again later.
+                </p>
+              </template>
+            </li>
+          </ol>
+          <p class="privacy">
+            <b>Your data:</b> this tab signs in to your org directly and reads
+            metadata plus record <i>counts</i>, never records. The sign-in token
+            stays in this tab's memory, is used once to read, then dropped. It
+            never reaches our server. While the crew works, only the pieces it
+            reads are sent to the AI, one step at a time, through the Einstein
+            Trust Layer.
+          </p>
+        </template>
+
+        <template lwc:else>
+          <ol class="steps">
+            <li>
+              <h3>1. Export your metadata with the Salesforce CLI</h3>
+              <p>
+                Use a sandbox or a dev org. This reads metadata only: no
+                records.
+              </p>
+              <label class="alias">
+                <span>Your org alias</span>
+                <input
+                  type="text"
+                  value={alias}
+                  oninput={handleAlias}
+                  aria-label="Your org alias"
+                />
+              </label>
+              <div class="cmd">
+                <textarea
+                  lwc:ref="command"
+                  readonly
+                  rows="4"
+                  aria-label="Command to run"
+                  value={command}
+                ></textarea>
+                <button class="btn" onclick={handleCopy}>{copyLabel}</button>
+              </div>
+              <p class="note">
+                It creates <code>orgxray/orgxray.zip</code> in the folder you
+                run it from.
+              </p>
+            </li>
+            <li>
+              <h3>2. Choose the zip</h3>
+              <div class="drop" ondragover={handleDragOver} ondrop={handleDrop}>
+                <p>Drop <code>orgxray.zip</code> here, or</p>
+                <input
+                  type="file"
+                  accept=".zip"
+                  onchange={handleFile}
+                  aria-label="Choose orgxray.zip"
+                />
+              </div>
+              <template lwc:if={status}
+                ><p class="status" aria-live="polite">{status}</p></template
+              >
+              <template lwc:if={error}
+                ><p class="error" role="alert">{error}</p></template
+              >
+              <template lwc:if={hasIndex}>
+                <p class="found"><b>Found:</b> {summaryText}</p>
+                <template lwc:if={skippedText}
+                  ><p class="note">{skippedText}</p></template
+                >
+              </template>
+            </li>
+            <li>
+              <h3>3. Send in the crew</h3>
+              <button
+                class="btn primary"
+                disabled={startDisabled}
+                onclick={handleStart}
+              >
+                ✦ Investigate my org
+              </button>
+              <template lwc:if={showResting}>
+                <p class="error">
+                  The live AI crew is resting right now. Please try again later.
+                </p>
+              </template>
+            </li>
+          </ol>
+
+          <p class="privacy">
+            <b>Your data:</b> the zip is read in this browser tab and never
+            uploaded or stored. While the crew works, only the pieces it reads
+            are sent to the AI, one step at a time, through the Einstein Trust
+            Layer. Close the tab and it's gone.
+          </p>
+        </template>
       </section>
     </template>
   </div>

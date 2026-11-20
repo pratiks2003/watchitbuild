@@ -2,6 +2,13 @@ import { LightningElement, api } from "lwc";
 import { loadScript } from "lightning/platformResourceLoader";
 import JSZIP_URL from "@salesforce/resourceUrl/jszip";
 import { buildIndex } from "c/xrayIndexer";
+import {
+  startSignIn,
+  finishSignIn,
+  isSignInReturn,
+  readOrg,
+  cleanDomain
+} from "c/xrayConnect";
 
 const MAX_ZIP_BYTES = 40 * 1024 * 1024;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -50,12 +57,123 @@ export default class XrayUpload extends LightningElement {
   @api open = false;
   @api liveEnabled = false;
 
+  tab = "signin";
+  domain = "";
   alias = "my-sandbox";
   status = "";
   error = "";
   busy = false;
   index = null;
   copied = false;
+  originCopied = false;
+
+  connectedCallback() {
+    if (isSignInReturn()) this.resumeSignIn();
+  }
+
+  /* ---------- tabs ---------- */
+
+  get signInTab() {
+    return this.tab === "signin";
+  }
+
+  get signInTabCls() {
+    return `tab${this.signInTab ? " on" : ""}`;
+  }
+
+  get zipTabCls() {
+    return `tab${this.signInTab ? "" : " on"}`;
+  }
+
+  get signInSelected() {
+    return String(this.signInTab);
+  }
+
+  get zipSelected() {
+    return String(!this.signInTab);
+  }
+
+  showSignIn() {
+    this.tab = "signin";
+  }
+
+  showZip() {
+    this.tab = "zip";
+  }
+
+  /* ---------- sign in ---------- */
+
+  get siteOrigin() {
+    return window.location.origin;
+  }
+
+  get signInDisabled() {
+    return this.busy || !cleanDomain(this.domain);
+  }
+
+  handleDomain(event) {
+    this.domain = event.target.value;
+    this.error = "";
+  }
+
+  handleDomainKey(event) {
+    if (event.key === "Enter" && !this.signInDisabled) this.handleSignIn();
+  }
+
+  async handleCopyOrigin() {
+    try {
+      await navigator.clipboard.writeText(this.siteOrigin);
+      this.originCopied = true;
+    } catch {
+      // the origin is visible on screen; copying is a convenience
+    }
+  }
+
+  get originCopyLabel() {
+    return this.originCopied ? "Copied" : "Copy";
+  }
+
+  async handleSignIn() {
+    this.error = "";
+    this.index = null;
+    try {
+      this.status = "Taking you to your org's login page…";
+      await startSignIn(this.domain);
+    } catch (error) {
+      this.status = "";
+      this.error = error.message;
+    }
+  }
+
+  /** Back from the login page: exchange the code in this tab, read the org, forget the token. */
+  async resumeSignIn() {
+    this.tab = "signin";
+    this.busy = true;
+    this.error = "";
+    this.index = null;
+    try {
+      this.status = "Signing in…";
+      const session = await finishSignIn();
+      this.domain = session.domain;
+      this.index = await readOrg(session, {
+        onProgress: (label) => {
+          this.status = `${label}…`;
+        }
+      });
+      this.status = this.index.components.length ? "Ready." : "";
+      if (!this.index.components.length) {
+        this.error =
+          "We could read your org but found no automation to investigate. Check your user can view setup and Apex.";
+      }
+    } catch (error) {
+      this.status = "";
+      this.error = error.message;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /* ---------- zip ---------- */
 
   get command() {
     const alias = (this.alias || "my-sandbox").replace(/[^\w.@-]/g, "");
@@ -91,6 +209,10 @@ export default class XrayUpload extends LightningElement {
     const s = this.index?.stats;
     if (!s) return "";
     const notes = [];
+    if (s.skipped?.length)
+      notes.push(
+        `Not readable with your access: ${s.skipped.map((x) => x.split(":")[0].replace(/^Reading /, "")).join(", ")}`
+      );
     if (s.skippedComponents)
       notes.push(
         `${s.skippedComponents} less important components left out to keep the dig readable`
