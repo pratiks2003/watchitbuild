@@ -19,7 +19,8 @@ public with sharing class XrayContract {
     'listComponents',
     'getComponent',
     'countBy',
-    'searchMetadata'
+    'searchMetadata',
+    'firingOrder'
   };
   public static final Set<String> CONFIDENCE = new Set<String>{
     'confirmed',

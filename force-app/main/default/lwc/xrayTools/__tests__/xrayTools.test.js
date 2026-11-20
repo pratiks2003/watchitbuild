@@ -82,6 +82,6 @@ describe("c/xrayTools", () => {
       }).type
     ).toBe("trigger");
     expect(targetOf(DEMO_ORG, { tool: "listObjects", args: {} })).toBeNull();
-    expect(TOOL_NAMES).toHaveLength(6);
+    expect(TOOL_NAMES).toHaveLength(7);
   });
 });

@@ -22,6 +22,32 @@ const RANK = { guess: 0, likely: 1, confirmed: 2 };
 const REPEAT_LIMIT = 2; // nudge as soon as the same action comes twice in a row
 
 /**
+ * The summary may only lean on what exists: a process step whose evidence names nothing
+ * in this org (no component, no object) is downgraded to a guess, so the map never
+ * presents invented automation as fact.
+ */
+export function groundSummary(summary, index) {
+  if (!summary?.process?.steps) return summary;
+  const known = new Set(
+    [...index.components, ...index.objects].map((x) => x.name.toLowerCase())
+  );
+  const grounded = (evidence) =>
+    String(evidence ?? "")
+      .split(/[^A-Za-z0-9_.]+/)
+      .some((w) => known.has(w.toLowerCase()));
+  return {
+    ...summary,
+    process: {
+      ...summary.process,
+      steps: summary.process.steps.map((step) => {
+        if (step.outside || grounded(step.evidence)) return step;
+        return { ...step, confidence: "guess", ungrounded: true };
+      })
+    }
+  };
+}
+
+/**
  * Runs an investigation: asks the server for one validated step at a time, runs the
  * step's read-only tool locally on the index, and keeps questions and findings.
  *
@@ -243,7 +269,10 @@ export class AgentLoop {
 
     if (!this.stopped && findings.length) {
       try {
-        run.summary = await this.api.summarize({ findings });
+        run.summary = groundSummary(
+          await this.api.summarize({ findings }),
+          this.index
+        );
         this.onEvent({ type: "summary", summary: run.summary });
       } catch (error) {
         this.onEvent({ type: "error", error });

@@ -4,8 +4,12 @@
  * same rule; this stays as the fallback when the live crew is off.
  *
  * ctx: { findings: [{ finding, agent }], summary, challenges: string[], style: 'plain'|'tech',
- *        activity, confidence }
+ *        activity, confidence, index }
+ * Questions about what runs when (triggers, flows, conversion) are answered straight from
+ * the org's metadata index, in order of execution: facts, not guesses.
  */
+
+import { firingOrder, leadConversion, firingText } from "c/xrayFiring";
 
 const STOP = new Set([
   "what",
@@ -106,8 +110,76 @@ export function bestFinding(question, findings) {
   return best;
 }
 
+/** The object a question is about: API name, label, or a plural of either. Longest match wins. */
+export function objectIn(question, index) {
+  const q = ` ${question.toLowerCase().replace(/[^a-z0-9_]+/g, " ")} `;
+  const forms = (o) => {
+    const base = o.name.toLowerCase();
+    const plain = base.replace(/__c$/, "").replace(/_/g, " ");
+    const label = String(o.label ?? "").toLowerCase();
+    return [base, plain, label, `${plain}s`, `${label}s`].filter(
+      (f) => f.length > 2
+    );
+  };
+  let best = null;
+  index.objects.forEach((o) => {
+    forms(o).forEach((f) => {
+      if (q.includes(` ${f} `) && (!best || f.length > best.len))
+        best = { name: o.name, len: f.length };
+    });
+  });
+  return best?.name ?? null;
+}
+
+const EVENT_WORDS = [
+  [/delet|remov/, "delete"],
+  [/creat|insert|new |added|add /, "create"],
+  [/updat|edit|chang|save/, "update"]
+];
+
+function firingAnswer(question, index) {
+  const s = question.toLowerCase();
+  if (/conver(t|sion)/.test(s) && /lead/.test(s)) {
+    const lc = leadConversion(index);
+    const parts = lc.parts.map(
+      (p) => `▸ ${p.title}\n${firingText(p, { max: 700 })}`
+    );
+    const code = lc.code.length
+      ? `Code and flows that convert or react to conversion: ${lc.code.map((c) => `${c.name} (${c.signals.join(", ")})`).join("; ")}.`
+      : "No Apex or flow in this org calls lead conversion itself, so conversion happens from the standard Convert button.";
+    return {
+      text: `Converting a lead sets off this chain, in order:\n\n${parts.join("\n\n")}\n\n${code}\n\n${lc.note}`,
+      source: "order of execution, built from this org's metadata"
+    };
+  }
+  const object = objectIn(question, index);
+  if (!object) return null;
+  const said = EVENT_WORDS.find(([re]) => re.test(s))?.[1];
+  const events = said ? [said] : ["create", "update"];
+  const blocks = events.map((ev) => {
+    const r = firingOrder(index, object, ev);
+    const verb = { create: "created", update: "edited", delete: "deleted" }[ev];
+    return r.total
+      ? `When a ${object} is ${verb}, ${r.total} thing${r.total > 1 ? "s" : ""} run, in this order:\n${firingText(r, { max: 1400 })}`
+      : `When a ${object} is ${verb}: nothing runs automatically.`;
+  });
+  return {
+    text: blocks.join("\n\n"),
+    source: "order of execution, built from this org's metadata"
+  };
+}
+
 export function reply(agent, question, ctx) {
   const s = question.toLowerCase();
+  if (
+    ctx.index &&
+    /fire|firing|trigger|flow|automat|order of execution|what (happens|runs)|conver(t|sion)|validation|workflow|process builder/.test(
+      s
+    )
+  ) {
+    const answer = firingAnswer(question, ctx.index);
+    if (answer) return answer;
+  }
   const findings = ctx.findings ?? [];
   const titles = () => findings.map(({ finding }) => finding.title);
 

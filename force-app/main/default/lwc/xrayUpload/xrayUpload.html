@@ -80,6 +80,9 @@
               >
               <template lwc:if={hasIndex}>
                 <p class="found"><b>Found:</b> {summaryText}</p>
+                <template lwc:if={flowText}
+                  ><p class="note">{flowText}</p></template
+                >
                 <template lwc:if={skippedText}
                   ><p class="note">{skippedText}</p></template
                 >
@@ -162,6 +165,9 @@
               >
               <template lwc:if={hasIndex}>
                 <p class="found"><b>Found:</b> {summaryText}</p>
+                <template lwc:if={flowText}
+                  ><p class="note">{flowText}</p></template
+                >
                 <template lwc:if={skippedText}
                   ><p class="note">{skippedText}</p></template
                 >

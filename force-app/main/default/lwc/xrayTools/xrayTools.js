@@ -4,7 +4,10 @@
  * Every result is small and clipped, and records are never exposed: counts only.
  */
 
+import { firingOrder, leadConversion, firingText } from "c/xrayFiring";
+
 const MAX_RESULT_CHARS = 6000;
+const SUMMARY_OBJECTS = 40;
 const MAX_LIST = 25;
 const MAX_SEARCH = 10;
 
@@ -14,7 +17,8 @@ export const TOOL_NAMES = [
   "listComponents",
   "getComponent",
   "countBy",
-  "searchMetadata"
+  "searchMetadata",
+  "firingOrder"
 ];
 
 const lower = (value) => String(value ?? "").toLowerCase();
@@ -35,12 +39,20 @@ function clip(result) {
 
 /** One-paragraph overview the crew always sees. */
 export function orgSummary(index) {
-  const objects = [...index.objects]
-    .sort((a, b) => (b.records ?? 0) - (a.records ?? 0))
-    .map(
-      (o) => `${o.name}${o.records != null ? ` (${o.records} records)` : ""}`
-    )
-    .join(", ");
+  // Big orgs have thousands of objects: name the busiest, count the rest.
+  const ranked = [...index.objects].sort(
+    (a, b) =>
+      (b.touchedBy ?? 0) - (a.touchedBy ?? 0) ||
+      (b.records ?? 0) - (a.records ?? 0)
+  );
+  const more = ranked.length - SUMMARY_OBJECTS;
+  const objects =
+    ranked
+      .slice(0, SUMMARY_OBJECTS)
+      .map(
+        (o) => `${o.name}${o.records != null ? ` (${o.records} records)` : ""}`
+      )
+      .join(", ") + (more > 0 ? `, and ${more} more objects` : "");
   const types = {};
   index.components.forEach((c) => {
     types[c.type] = (types[c.type] ?? 0) + 1;
@@ -109,6 +121,31 @@ const TOOLS = {
       : { error: `No counts available for ${object}.${field}.` };
   },
 
+  /** What runs, in order, when a record is created, edited or deleted. event "convert" = lead conversion. */
+  firingOrder(index, { object, event = "update" }) {
+    if (/conver(t|sion)/i.test(event) || /conver(t|sion)/i.test(object)) {
+      const lc = leadConversion(index);
+      return {
+        leadConversion: lc.parts.map((p) => ({
+          step: p.title,
+          runs: firingText(p, { max: 900 })
+        })),
+        codeThatConverts: lc.code.slice(0, 15),
+        note: lc.note
+      };
+    }
+    const known = index.objects.find((o) => lower(o.name) === lower(object));
+    const name = known?.name ?? object;
+    const result = firingOrder(index, name, event);
+    return {
+      object: name,
+      event: result.event,
+      total: result.total,
+      inactiveNotShown: result.inactive,
+      order: firingText(result, { max: 4000 })
+    };
+  },
+
   searchMetadata(index, { text }) {
     const needle = lower(text).trim();
     if (needle.length < 2) return { error: "Search text is too short." };
@@ -162,6 +199,11 @@ export function resultLine(tool, result) {
       break;
     case "getComponent":
       line = `${result.type} ${result.name} on ${result.object ?? "-"} (${result.year}, ${result.active ? "active" : "inactive"}): ${JSON.stringify(result.detail ?? {})}`;
+      break;
+    case "firingOrder":
+      line = result.leadConversion
+        ? `lead conversion: ${result.leadConversion.map((p) => `${p.step}: ${p.runs}`).join(" | ")}`
+        : `${result.object} ${result.event}: ${result.total} run in order: ${result.order}`;
       break;
     case "countBy":
       line = `${result.object}.${result.field}: ${JSON.stringify(result.counts)}`;

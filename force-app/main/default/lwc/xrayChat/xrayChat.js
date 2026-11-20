@@ -15,6 +15,7 @@ export default class XrayChat extends LightningElement {
   @api activity = "";
   @api confidence = 0;
   @api defaultStyle = "plain";
+  @api orgIndex = null;
 
   history = {};
   draft = "";
@@ -132,7 +133,8 @@ export default class XrayChat extends LightningElement {
       challenges: this.challenges ?? [],
       style: this.style,
       activity: this.activity,
-      confidence: this.confidence
+      confidence: this.confidence,
+      index: this.orgIndex
     });
     this.typing = false;
     const msg = this.message("a", "", null);
